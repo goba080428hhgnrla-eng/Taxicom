@@ -1,0 +1,79 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+    <div class="bg-gray-800 p-4 rounded-xl shadow-lg border border-gray-700 h-[600px] overflow-y-auto">
+        <h2 class="text-lg font-bold mb-4 border-b border-gray-700 pb-2 text-yellow-500">Vehículos en Circulación</h2>
+        <div class="space-y-3">
+            {% for chofer in choferes %}
+            <div class="p-3 bg-gray-700 rounded-lg border border-gray-600">
+                <p class="font-bold">{{ chofer.perfil.user.get_full_name }}</p>
+                <p class="text-xs text-gray-400">Placas: {{ chofer.vehiculo.placas }}</p>
+                <span class="px-2 py-0.5 text-xs rounded {% if chofer.estado == 'en_ruta' %}bg-green-900 text-green-300{% else %}bg-blue-900 text-blue-300{% endif %}">
+                    {{ chofer.get_estado_display }}
+                </span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="lg:col-span-3 bg-gray-800 rounded-xl shadow-lg border border-gray-700 relative h-[600px]">
+        <div id="map" class="w-full h-full rounded-xl"></div>
+    </div>
+</div>
+
+<script>
+    // Inicializar el mapa en coordenadas de tu región (Ejemplo: México centro)
+    const map = L.map('map').setView([19.4326, -99.1332], 13);
+
+    // Carga de capa gratuita de OpenStreetMap con estilo oscuro profesional (CartoDB DarkMatter)
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; OpenStreetMap &copy; CARTO'
+    }).addTo(map);
+
+    // Diccionario de marcadores en el mapa
+    const markers = {};
+
+    // Inyectar choferes iniciales que vienen de la Base de Datos
+    {% for chofer in choferes %}
+        if ({{ chofer.latitud }} !== 0.0) {
+            crearOActualizarMarcador({{ chofer.id }}, {{ chofer.latitud }}, {{ chofer.longitud }}, "{{ chofer.perfil.user.get_full_name }}", "{{ chofer.vehiculo.marca }} {{ chofer.vehiculo.modelo }}", "{{ chofer.vehiculo.sketchfab_model_id }}", {{ chofer.asientos_disponibles }});
+        }
+    {% endfor %}
+
+    function crearOActualizarMarcador(id, lat, lng, nombre, auto, sketchfabId, asientos) {
+        // Estructura del Iframe 3D consumiendo la API de Sketchfab de forma gratuita y limpia
+        const iframe3D = `<iframe src="https://sketchfab.com/models/${sketchfabId}/embed?autostart=1&internal=1" class="w-full h-40 mt-2 rounded border border-gray-600" frameborder="0" allow="autoplay; fullscreen; vr"></iframe>`;
+        
+        const popupContent = `
+            <div class="text-gray-900 p-1 w-64">
+                <h3 class="font-bold text-sm text-yellow-600">${nombre}</h3>
+                <p class="text-xs font-semibold">Vehículo: ${auto}</p>
+                <p class="text-xs">Asientos libres: <b>${asientos}</b></p>
+                ${sketchfabId ? iframe3D : ''}
+            </div>
+        `;
+
+        if (markers[id]) {
+            markers[id].setLatLng([lat, lng]);
+            markers[id].getPopup().setContent(popupContent);
+        } else {
+            markers[id] = L.marker([lat, lng]).addTo(map).bindPopup(popupContent);
+        }
+    }
+
+    // --- CONEXIÓN AL WEBSOCKET EN TIEMPO REAL ---
+    const wsScheme = window.location.protocol === "https:" ? "wss" : "ws";
+    const trackingSocket = new WebSocket(`${wsScheme}://${window.location.host}/ws/tracking/`);
+
+    trackingSocket.onmessage = function(e) {
+        const data = JSON.parse(e.data);
+        // Cuando llegue un ping de coordenadas de la App de Android, se refresca el marcador
+        // Se asume que pasas el nombre y el ID del auto del chofer de alguna manera o se mapea en cliente
+        crearOActualizarMarcador(data.chofer_id, data.lat, data.lng, "Chofer en Ruta", "Actualizando...", "0f2f3579ea374c4caea9d20c78a0bb99", data.asientos_disponibles);
+    };
+
+    trackingSocket.onclose = function(e) {
+        console.error('El canal de rastreo por WebSocket se cerró inesperadamente.');
+    };
+</script>
+{% endblock %}

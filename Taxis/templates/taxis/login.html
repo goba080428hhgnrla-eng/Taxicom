@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Iniciar Sesión - CentralTaxi</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen flex items-center justify-center px-4">
+    <div class="max-w-md w-full bg-gray-900 border border-gray-800 p-8 rounded-2xl shadow-2xl">
+        
+        <div class="text-center mb-6">
+            <h1 class="text-3xl font-extrabold text-yellow-500">CentralTaxi</h1>
+            <p class="text-gray-400 text-sm mt-1">Panel de Control de Administración</p>
+        </div>
+
+        {% if messages %}
+            <div class="mb-4">
+                {% for message in messages %}
+                    <div class="p-3 text-sm bg-red-900/50 border border-red-700 text-red-200 rounded-lg">
+                        {{ message }}
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+
+        <form method="POST" class="space-y-5">
+            {% csrf_token %}
+            
+            <div>
+                <label for="id_username" class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Usuario</label>
+                <input type="text" name="username" id="id_username" required 
+                       class="w-full bg-gray-850 border border-gray-700 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-yellow-500 text-white transition placeholder-gray-500" 
+                       placeholder="Ingresa tu usuario">
+            </div>
+
+            <div>
+                <label for="id_password" class="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Contraseña</label>
+                <input type="password" name="password" id="id_password" required 
+                       class="w-full bg-gray-850 border border-gray-700 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-yellow-500 text-white transition placeholder-gray-500" 
+                       placeholder="••••••••">
+            </div>
+
+            <button type="submit" 
+                    class="w-full bg-yellow-500 hover:bg-yellow-400 text-gray-950 font-bold py-3 px-4 rounded-xl shadow-lg hover:shadow-yellow-500/20 transition duration-200 cursor-pointer text-sm">
+                Entrar al Sistema
+            </button>
+        </form>
+
+        <div class="mt-6 text-center">
+            <a href="{% url 'home_publico' %}" class="text-xs text-gray-500 hover:text-yellow-500 transition">← Volver al sitio principal</a>
+        </div>
+    </div>
+</body>
+</html>

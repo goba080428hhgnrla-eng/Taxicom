@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bienvenidos a CentralTaxi</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+</head>
+<body class="bg-gray-950 text-gray-100 flex flex-col min-h-screen justify-between">
+    <header class="p-6 max-w-6xl mx-auto w-full flex justify-between items-center">
+        <h1 class="text-2xl font-bold text-yellow-500">🚕 CentralTaxi</h1>
+        <a href="{% url 'admin_dashboard' %}" class="bg-yellow-500 hover:bg-yellow-400 text-gray-900 font-bold px-4 py-2 rounded transition">
+            Ingresar al Panel
+        </a>
+    </header>
+
+    <main class="max-w-4xl mx-auto text-center px-6 my-auto">
+        <h2 class="text-5xl font-extrabold mb-4">El viaje que mereces, seguro y confiable.</h2>
+        <p class="text-gray-400 text-lg mb-8">Rastreo en tiempo real, choferes certificados y la mayor comodidad directo a tu ubicación.</p>
+        <div class="inline-flex space-x-4">
+            <span class="bg-gray-800 border border-gray-700 px-4 py-2 rounded-full text-sm">📍 Una Sola Ruta Fija</span>
+            <span class="bg-gray-800 border border-gray-700 px-4 py-2 rounded-full text-sm">📦 Espacio para Cajuela</span>
+            <span class="bg-gray-800 border border-gray-700 px-4 py-2 rounded-full text-sm">🎮 Autos en 3D</span>
+        </div>
+    </main>
+
+    <footer class="p-6 text-center text-gray-600 text-sm border-t border-gray-900">
+        &copy; 2026 CentralTaxi. Todos los derechos reservados.
+    </footer>
+</body>
+</html>

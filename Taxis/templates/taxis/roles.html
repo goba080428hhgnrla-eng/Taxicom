@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Configuración de Roles y Grupos - CentralTaxi</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen">
+    
+    <div class="max-w-7xl mx-auto px-4 py-8">
+        
+        <div class="flex justify-between items-center mb-8 border-b border-gray-800 pb-4">
+            <div>
+                <h1 class="text-3xl font-extrabold text-yellow-500">Gestión Operativa de Roles</h1>
+                <p class="text-gray-400 text-sm mt-1">Crea grupos de servicio y asigna manualmente a tus conductores.</p>
+            </div>
+            <a href="{% url 'admin_dashboard' %}" class="bg-gray-900 border border-gray-700 hover:border-yellow-500 px-4 py-2 rounded-xl text-sm transition">
+                ← Volver al Mapa
+            </a>
+        </div>
+
+        {% if messages %}
+            <div class="mb-6 space-y-2">
+                {% for message in messages %}
+                    <div class="p-4 text-sm rounded-xl border {% if message.tags == 'error' %} bg-red-950/40 border-red-800 text-red-200 {% else %} bg-emerald-950/40 border-emerald-800 text-emerald-200 {% endif %}">
+                        {{ message }}
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            
+            <div class="bg-gray-900 border border-gray-800 p-6 rounded-2xl h-fit">
+                <h2 class="text-xl font-bold mb-4 text-white">Definir Nuevo Grupo</h2>
+                <p class="text-xs text-gray-400 mb-6">Configura un grupo (Ej: "Grupo 1") y selecciona qué días de la semana tiene permitido trabajar en la plataforma.</p>
+                
+                <form method="POST" class="space-y-6">
+                    {% csrf_token %}
+                    <input type="hidden" name="accion" value="guardar_regla">
+                    
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-400 uppercase mb-2">Nombre del Grupo</label>
+                        <input type="text" name="grupo" required placeholder="Ej: Grupo 1, Fin de Semana"
+                               class="w-full bg-gray-850 border border-gray-700 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-yellow-500 text-white transition">
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-400 uppercase mb-3">Días Autorizados</label>
+                        <div class="grid grid-cols-2 gap-3">
+                            {% for dia in dias_opciones %}
+                                <label class="flex items-center space-x-3 bg-gray-850 border border-gray-700 p-3 rounded-xl cursor-pointer hover:border-gray-500 transition">
+                                    <input type="checkbox" name="dias" value="{{ dia }}" class="accent-yellow-500 rounded text-gray-900 focus:ring-0">
+                                    <span class="text-sm text-gray-200">{{ dia }}</span>
+                                </label>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <button type="submit" class="w-full bg-yellow-500 hover:bg-yellow-400 text-gray-950 font-bold py-3 rounded-xl transition shadow-lg text-sm cursor-pointer">
+                        Crear / Actualizar Grupo
+                    </button>
+                </form>
+            </div>
+
+            <div class="lg:col-span-2 space-y-8">
+                
+                <div class="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
+                    <div class="p-6 border-b border-gray-800">
+                        <h2 class="text-xl font-bold text-white">Calendarios de Grupos Registrados</h2>
+                    </div>
+                    
+                    {% if grupos_configurados %}
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left border-collapse">
+                                <thead>
+                                    <tr class="bg-gray-850 text-xs font-semibold text-gray-400 uppercase border-b border-gray-800">
+                                        <th class="p-4">Grupo</th>
+                                        <th class="p-4">Días Operativos</th>
+                                        <th class="p-4 text-center">Acción</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-800">
+                                    {% for grupo, dias in grupos_configurados.items %}
+                                        <tr class="hover:bg-gray-850/50 transition">
+                                            <td class="p-4 font-bold text-yellow-500 text-sm">{{ grupo }}</td>
+                                            <td class="p-4">
+                                                <div class="flex flex-wrap gap-2">
+                                                    {% for dia in dias %}
+                                                        <span class="bg-gray-800 border border-gray-700 text-gray-300 text-xs px-2.5 py-1 rounded-md font-medium">
+                                                            📅 {{ dia }}
+                                                        </span>
+                                                    {% endfor %}
+                                                </div>
+                                            </td>
+                                            <td class="p-4 text-center">
+                                                <form method="POST" onsubmit="return confirm('¿Eliminar grupo? Los choferes de este grupo quedarán sin rol asignado.');">
+                                                    {% csrf_token %}
+                                                    <input type="hidden" name="accion" value="eliminar_grupo">
+                                                    <input type="hidden" name="grupo" value="{{ grupo }}">
+                                                    <button type="submit" class="text-xs bg-red-950/60 hover:bg-red-900 text-red-400 border border-red-800 px-3 py-1.5 rounded-lg transition cursor-pointer">
+                                                        Eliminar
+                                                    </button>
+                                                </form>
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <div class="p-8 text-center text-gray-500 text-sm">
+                            No hay grupos configurados aún. Crea uno en el panel izquierdo.
+                        </div>
+                    {% endif %}
+                </div>
+
+                <div class="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
+                    <div class="p-6 border-b border-gray-800">
+                        <h2 class="text-xl font-bold text-white">Asignación Manual de Personal</h2>
+                        <p class="text-xs text-gray-400 mt-1">Selecciona el grupo correspondiente para cada conductor y guarda los cambios.</p>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="bg-gray-850 text-xs font-semibold text-gray-400 uppercase border-b border-gray-800">
+                                    <th class="p-4">Conductor / Teléfono</th>
+                                    <th class="p-4">Estado Actual</th>
+                                    <th class="p-4">Cambiar / Asignar Grupo</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-800 text-sm">
+                                {% for chofer in choferes %}
+                                    <tr class="hover:bg-gray-850/50 transition">
+                                        <td class="p-4">
+                                            <div class="font-semibold text-gray-200">{{ chofer.perfil.nombre }} {{ chofer.perfil.apellido }}</div>
+                                            <div class="text-xs text-gray-500">{{ chofer.perfil.telefono|default:"Sin Teléfono" }}</div>
+                                        </td>
+                                        <td class="p-4">
+                                            <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase border
+                                                {% if chofer.estado == 'activo' %} bg-emerald-950/50 text-emerald-400 border-emerald-800
+                                                {% elif chofer.estado == 'en_ruta' %} bg-blue-950/50 text-blue-400 border-blue-800
+                                                {% else %} bg-gray-800 text-gray-400 border-gray-700 {% endif %}">
+                                                {{ chofer.get_estado_display }}
+                                            </span>
+                                        </td>
+                                        <td class="p-4">
+                                            <form method="POST" class="flex items-center space-x-2">
+                                                {% csrf_token %}
+                                                <input type="hidden" name="accion" value="assign_chofer"> <script>
+                                                    document.currentScript.parentElement.querySelector('input[name="accion"]').value = "asignar_chofer";
+                                                </script>
+                                                <input type="hidden" name="chofer_id" value="{{ chofer.id }}">
+                                                
+                                                <select name="grupo_rol" class="bg-gray-850 border border-gray-700 text-xs text-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-yellow-500 transition">
+                                                    <option value="">-- Fuera de Rol --</option>
+                                                    {% for g_nombre in lista_grupos %}
+                                                        <option value="{{ g_nombre }}" {% if chofer.grupo_rol == g_nombre %}selected{% endif %}>
+                                                            {{ g_nombre }}
+                                                        </option>
+                                                    {% endfor %}
+                                                </select>
+                                                
+                                                <button type="submit" class="bg-yellow-500 hover:bg-yellow-400 text-gray-950 text-xs font-bold px-3 py-1.5 rounded-lg transition cursor-pointer">
+                                                    Vincular
+                                                </button>
+                                            </form>
+                                        </td>
+                                    </tr>
+                                {% empty %}
+                                    <tr>
+                                        <td colspan="3" class="p-8 text-center text-gray-500 text-sm">
+                                            No hay choferes activos disponibles para asignar.
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+</body>
+</html>

@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sitio de Taxis - Panel Administrativo</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen flex flex-col">
+    <nav class="bg-gray-800 border-b border-gray-700 px-6 py-4 flex justify-between items-center">
+        <div class="flex items-center space-x-4">
+            <span class="text-xl font-bold text-yellow-500">🚕 CentralTaxi</span>
+            <div class="hidden md:flex space-x-4 text-sm font-medium">
+                <a href="{% url 'admin_dashboard' %}" class="hover:text-yellow-500">Mapa General</a>
+                <a href="{% url 'gestion_choferes' %}" class="hover:text-yellow-500">Gestión Choferes</a>
+                <a href="{% url 'asignar_roles' %}" class="hover:text-yellow-500">Roles y Turnos</a>
+            </div>
+        </div>
+        <div class="text-sm text-gray-400">Panel Administrador</div>
+    </nav>
+
+    <main class="flex-1 p-6">
+        {% block content %}{% endblock %}
+    </main>
+</body>
+</html>
