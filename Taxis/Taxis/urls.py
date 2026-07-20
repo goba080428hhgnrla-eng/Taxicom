@@ -31,6 +31,8 @@ urlpatterns = [
     # NUEVA RUTA PARA TU TABLA INDEPENDIENTE DE INTEGRANTES
     path('dashboard/usuarios/', views.lista_usuarios, name='lista_usuarios'),
     path('dashboard/roles/', views.asignar_roles, name='asignar_roles'),
+    path('api/chofer/ubicacion/', views.actualizar_ubicacion_chofer, name='actualizar_ubicacion_chofer'),
+    path('api/admin/choferes-mapa/', views.api_choferes_activos_mapa, name='api_choferes_activos_mapa'),
     
     
     

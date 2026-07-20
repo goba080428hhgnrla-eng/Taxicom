@@ -5,9 +5,9 @@ from .models import Chofer, PerfilUsuario, Viaje
 
 class TaxiColectivoConsumer(AsyncWebsocketConsumer):
     async def connect(self):
+        # Canal unificado para dashboard web, pasajeros y unidades de taxi
         self.room_group_name = "central_taxis_colectivos"
         
-        # Unir al cliente o chofer al canal unificado de transmisión
         await self.channel_layer.group_add(
             self.room_group_name,
             self.channel_name
@@ -22,33 +22,37 @@ class TaxiColectivoConsumer(AsyncWebsocketConsumer):
 
     async def receive(self, text_data):
         """
-        Procesa las acciones enviadas desde los dispositivos móviles Android.
+        Procesa las acciones enviadas desde los dispositivos móviles Android y el Web.
         """
         data = json.loads(text_data)
         action = data.get("action")
 
-        # 1. ACTUALIZACIÓN DE UBICACIÓN (Enviada por el Chofer constantemente)
+        # 1. ACTUALIZACIÓN DE UBICACIÓN (Chofer envía coordenadas)
         if action == "actualizar_ubicacion_chofer":
             chofer_id = data.get("chofer_id")
             lat = data.get("latitud")
             lng = data.get("longitud")
             
-            # Guardar coordenadas del chofer en la base de datos
-            asientos_libres = await self.guardar_posicion_chofer(chofer_id, lat, lng)
+            # Guardar en BD y traer datos descriptivos del chofer y vehículo
+            chofer_info = await self.guardar_posicion_chofer(chofer_id, lat, lng)
             
-            # Retransmitir a todos los clientes conectados el movimiento del coche en el mapa
-            await self.channel_layer.group_send(
-                self.room_group_name,
-                {
-                    "type": "broadcast_ubicacion",
-                    "chofer_id": chofer_id,
-                    "latitud": lat,
-                    "longitud": lng,
-                    "asientos_disponibles": asientos_libres
-                }
-            )
+            if chofer_info:
+                # Transmitir el movimiento a todos los conectados (incluyendo Dashboard Web)
+                await self.channel_layer.group_send(
+                    self.room_group_name,
+                    {
+                        "type": "broadcast_ubicacion",
+                        "chofer_id": chofer_info["id"],
+                        "latitud": lat,
+                        "longitud": lng,
+                        "nombre": chofer_info["nombre"],
+                        "vehiculo": chofer_info["vehiculo"],
+                        "sketchfab_id": chofer_info["sketchfab_id"],
+                        "asientos_disponibles": chofer_info["asientos_disponibles"]
+                    }
+                )
 
-        # 2. ACCIÓN DE "PARAR" TAXI COLECTIVO (Enviada por el Cliente)
+        # 2. ACCIÓN DE "PARAR" TAXI COLECTIVO (Cliente solicita unidad)
         elif action == "solicitar_parada_colectivo":
             cliente_id = data.get("cliente_id")
             origen_lat = data.get("origen_lat")
@@ -57,13 +61,13 @@ class TaxiColectivoConsumer(AsyncWebsocketConsumer):
             destino_lng = data.get("destino_lng")
             asientos_pedidos = int(data.get("asientos", 1))
 
-            # Lógica inteligente: Buscar el taxi colectivo más óptimo con espacio suficiente
+            # Algoritmo de selección de unidad óptima
             chofer_asignado = await self.buscar_y_asignar_colectivo_inteligente(
                 origen_lat, origen_lng, destino_lat, destino_lng, asientos_pedidos
             )
 
             if chofer_asignado:
-                # Notificar directamente al chofer seleccionado en la app que tiene pasaje esperando
+                # Notificar la parada al chofer seleccionado
                 await self.channel_layer.group_send(
                     self.room_group_name,
                     {
@@ -77,28 +81,28 @@ class TaxiColectivoConsumer(AsyncWebsocketConsumer):
                         "asientos": asientos_pedidos
                     }
                 )
-                # Confirmar al cliente que un vehículo va en camino a su parada
+                # Confirmación individual al cliente
                 await self.send(text_data=json.dumps({
                     "status": "asignado",
                     "message": f"El taxi de {chofer_asignado['nombre']} ha recibido tu parada.",
                     "chofer_id": chofer_asignado['id']
                 }))
             else:
-                # Informar al cliente si todas las unidades colectivas van llenas en ese tramo
+                # Notificar falta de unidades disponibles
                 await self.send(text_data=json.dumps({
                     "status": "sin_cupo",
-                    "message": "No hay colectivos con asientos disponibles en este momento."
+                    "message": "No hay colectivos con asientos suficientes en este tramo."
                 }))
 
-        # 3. CONFIRMACIÓN DE ASCENSO/DESCENSO (Enviada por el Chofer al subir o bajar pasaje)
+        # 3. CONFIRMACIÓN DE ASCENSO/DESCENSO DE PASAJEROS
         elif action == "cambio_flujo_pasajeros":
             chofer_id = data.get("chofer_id")
-            tipo_movimiento = data.get("tipo") # "sube" o "baja"
+            tipo_movimiento = data.get("tipo")  # "sube" o "baja"
             asientos = int(data.get("asientos", 1))
             
             nuevos_asientos = await self.actualizar_inventario_asientos(chofer_id, tipo_movimiento, asientos)
             
-            # Avisar al mapa global que el inventario del taxi cambió
+            # Notificar el cambio de disponibilidad en tiempo real
             await self.channel_layer.group_send(
                 self.room_group_name,
                 {
@@ -109,12 +113,19 @@ class TaxiColectivoConsumer(AsyncWebsocketConsumer):
             )
 
     # --- HANDLERS ASÍNCRONOS DE BROADCAST ---
+
     async def broadcast_ubicacion(self, event):
+        """
+        Envía los datos de ubicación adaptados para actualizar los mapas Leaflet del Web y Android.
+        """
         await self.send(text_data=json.dumps({
             "event": "ubicacion_actualizada",
             "chofer_id": event["chofer_id"],
-            "latitud": event["latitud"],
-            "longitud": event["longitud"],
+            "lat": event["latitud"],
+            "lng": event["longitud"],
+            "nombre": event.get("nombre", "Chofer en Ruta"),
+            "vehiculo": event.get("vehiculo", "Vehículo Activo"),
+            "sketchfab_id": event.get("sketchfab_id", ""),
             "asientos_disponibles": event["asientos_disponibles"]
         }))
 
@@ -138,27 +149,44 @@ class TaxiColectivoConsumer(AsyncWebsocketConsumer):
         }))
 
     # --- INTERACCIONES CON LA BASE DE DATOS (MÉTODOS SYNC TO ASYNC) ---
+
     @database_sync_to_async
     def guardar_posicion_chofer(self, chofer_id, lat, lng):
         try:
-            chofer = Chofer.objects.get(id=chofer_id)
+            chofer = Chofer.objects.select_related('perfil', 'vehiculo').get(id=chofer_id)
+            
+            # Bloquear la actualización si el chofer no está aprobado aún
+            if chofer.estado in ['pendiente', 'inactivo']:
+                return None
+
             chofer.latitud = float(lat)
             chofer.longitud = float(lng)
             chofer.save()
-            return chofer.asientos_disponibles
+
+            nombre_completo = f"{chofer.perfil.nombre} {chofer.perfil.apellido}".strip() if chofer.perfil else f"Chofer #{chofer.id}"
+            info_vehiculo = f"{chofer.vehiculo.marca} {chofer.vehiculo.modelo}" if chofer.vehiculo else "Taxi Colectivo"
+            sketchfab_model = chofer.vehiculo.sketchfab_model_id if chofer.vehiculo else ""
+
+            return {
+                'id': chofer.id,
+                'nombre': nombre_completo,
+                'vehiculo': info_vehiculo,
+                'sketchfab_id': sketchfab_model,
+                'asientos_disponibles': chofer.asientos_disponibles
+            }
         except Chofer.DoesNotExist:
-            return 4
+            return None
 
     @database_sync_to_async
     def actualizar_inventario_asientos(self, chofer_id, tipo, cantidad):
         try:
-            chofer = Chofer.objects.get(id=chofer_id)
+            chofer = Chofer.objects.select_related('vehiculo').get(id=chofer_id)
             if tipo == "sube":
                 chofer.asientos_disponibles = max(0, chofer.asientos_disponibles - cantidad)
             elif tipo == "baja":
-                # No exceder la capacidad máxima configurada en su vehículo
-                limite_max = chofer.vehiculo.total_asientos if chofer.vehiculo else 4
+                limite_max = chofer.vehiculo.total_asientos if chofer.vehiculo and hasattr(chofer.vehiculo, 'total_asientos') else 4
                 chofer.asientos_disponibles = min(limite_max, chofer.asientos_disponibles + cantidad)
+            
             chofer.save()
             return chofer.asientos_disponibles
         except Chofer.DoesNotExist:
@@ -167,22 +195,24 @@ class TaxiColectivoConsumer(AsyncWebsocketConsumer):
     @database_sync_to_async
     def buscar_y_asignar_colectivo_inteligente(self, o_lat, o_lng, d_lat, d_lng, asientos_requeridos):
         """
-        Algoritmo predictivo básico: Filtra los choferes que están en modalidad 'activo'
-        (Colectivo) y que cuentan con asientos suficientes en tiempo real.
+        Filtra las unidades activas o en ruta con capacidad suficiente
+        y asigna la más cercana.
         """
         choferes_disponibles = Chofer.objects.filter(
-            estado='activo', 
-            asientos_disponibles__gte=asientos_requeridos
+            estado__in=['activo', 'en_ruta'], 
+            asientos_disponibles__gte=asientos_requeridos,
+            latitud__isnull=False,
+            longitud__isnull=False
         ).select_related('perfil')
 
         if not choferes_disponibles.exists():
             return None
 
-        # Asigna la unidad más cercana basándose en cálculo euclidiano simple
         mejor_opcion = None
         menor_distancia = float('inf')
 
         for chofer in choferes_disponibles:
+            # Distancia euclidiana aproximada
             distancia = ((chofer.latitud - float(o_lat))**2 + (chofer.longitud - float(o_lng))**2)**0.5
             if distancia < menor_distancia:
                 menor_distancia = distancia
@@ -191,6 +221,6 @@ class TaxiColectivoConsumer(AsyncWebsocketConsumer):
         if mejor_opcion:
             return {
                 'id': mejor_opcion.id,
-                'nombre': mejor_opcion.perfil.nombre
+                'nombre': mejor_opcion.perfil.nombre if mejor_opcion.perfil else f"Chofer #{mejor_opcion.id}"
             }
         return None

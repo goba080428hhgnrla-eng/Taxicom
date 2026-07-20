@@ -197,3 +197,73 @@ def asignar_roles(request):
     }
     
     return render(request, 'taxis/roles.html', context)
+
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.contrib.gis.geos import Point  # Si usas GeoDjango, de lo contrario guarda lat/lng normales
+import json
+
+
+@csrf_exempt
+def actualizar_ubicacion_chofer(request):
+    """
+    Endpoint invocado por la App de Android.
+    Valida si el chofer está aprobado (activo) antes de actualizar su ubicación.
+    """
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body)
+            perfil_id = data.get('perfil_id')
+            latitud = data.get('latitud')
+            longitud = data.get('longitud')
+
+            chofer = Chofer.objects.get(perfil__id_usuario=perfil_id)
+
+            # Restricción: Si el admin no lo ha aprobado, no entra
+            if chofer.estado == 'pendiente':
+                return JsonResponse({
+                    'error': 'Tu solicitud aún no ha sido aprobada por el administrador.'
+                }, status=403)
+
+            if chofer.estado == 'inactivo':
+                return JsonResponse({
+                    'error': 'Tu cuenta de chofer se encuentra desactivada.'
+                }, status=403)
+
+            # Actualizamos la posición
+            chofer.latitud = latitud
+            chofer.longitud = longitud
+            # O si usas campo Point: chofer.ubicacion = Point(float(longitud), float(latitud))
+            chofer.save()
+
+            return JsonResponse({'status': 'ok', 'message': 'Ubicación actualizada'}, status=200)
+
+        except Chofer.DoesNotExist:
+            return JsonResponse({'error': 'Perfil de chofer no encontrado.'}, status=404)
+        except Exception as e:
+            return JsonResponse({'error': str(e)}, status=500)
+
+    return JsonResponse({'error': 'Método no permitido'}, status=405)
+
+
+@login_panel_required
+def api_choferes_activos_mapa(request):
+    """
+    Devuelve los choferes activos/en ruta con sus coordenadas actualizadas para el dashboard del admin.
+    """
+    choferes = Chofer.objects.filter(estado__in=['activo', 'en_ruta']).select_related('perfil', 'vehiculo')
+    data = []
+    
+    for c in choferes:
+        if c.latitud and c.longitud:
+            data.append({
+                'id': c.id,
+                'nombre': c.perfil.nombre,
+                'placas': c.vehiculo.placas if c.vehiculo else 'S/N',
+                'vehiculo': f"{c.vehiculo.marca} {c.vehiculo.modelo}" if c.vehiculo else 'Vehículo',
+                'lat': float(c.latitud),
+                'lng': float(c.longitud),
+                'estado': c.estado,
+            })
+
+    return JsonResponse({'choferes': data}, status=200)
