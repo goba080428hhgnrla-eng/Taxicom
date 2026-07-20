@@ -86,7 +86,7 @@ def gestion_choferes(request):
         'pendientes': pendientes,
         'activos': activos,
     }
-    return render(request, 'gestion_choferes.html', context)
+    return render(request, 'taxis/gestion_choferes.html', context)
 
 @login_panel_required
 def asignar_roles(request):
