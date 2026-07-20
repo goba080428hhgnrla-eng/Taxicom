@@ -76,7 +76,7 @@ def gestion_choferes(request):
         except Chofer.DoesNotExist:
             pass
             
-        return redirect('gestion_choferes')
+        return redirect('taxis/gestion_choferes')
 
     pendientes = Chofer.objects.filter(estado='pendiente').select_related('perfil', 'vehiculo')
     
