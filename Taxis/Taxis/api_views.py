@@ -333,106 +333,72 @@ from rest_framework.decorators import api_view
 from django.contrib.auth.hashers import make_password    
     
     
-@api_view(['POST'])
-def registro_usuario_o_chofer(request):
-    data = request.data
-    
-    # Intentar obtener el ID del perfil desde los datos enviados por la app
-    perfil_id = data.get('perfil_id', None)
+@csrf_exempt
+def registro_chofer(request):
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body)
+            perfil_id = data.get('perfil_id')
 
-    try:
-        with transaction.atomic():
-            # =========================================================
-            # CASO A: EL USUARIO YA ESTÁ LOGUEADO COMO CLIENTE
-            # =========================================================
-            if perfil_id is not None and str(perfil_id).strip() != "":
-                # Verificar si el perfil existe usando 'id_usuario' como clave primaria
-                try:
-                    perfil = PerfilUsuario.objects.get(id_usuario=perfil_id)
-                except PerfilUsuario.DoesNotExist:
-                    return Response({"error": f"El perfil de usuario con ID {perfil_id} no existe."}, status=status.HTTP_404_NOT_FOUND)
-
-                # Validar si ya es Chofer para evitar el bug de doble petición de Volley
-                if Chofer.objects.filter(perfil=perfil).exists():
-                    return Response({"message": "Este usuario ya está registrado como chofer."}, status=status.HTTP_200_OK)
-
-                # Validar campos obligatorios del vehículo
-                campos_vehiculo = ['marca', 'modelo', 'placas', 'anio', 'sketchfab_model_id', 'color_vehiculo']
-                if not all(k in data for k in campos_vehiculo):
-                    return Response({"error": "Faltan datos del vehículo para realizar la promoción."}, status=status.HTTP_400_BAD_REQUEST)
-
-                # 1. Crear el vehículo en la Base de Datos
-                nuevo_vehiculo = Vehiculo.objects.create(
-                    marca=str(data['marca']).strip(),
-                    modelo=str(data['modelo']).strip(),
-                    anio=int(data['anio']),
-                    placas=str(data['placas']).upper().strip(),
-                    sketchfab_model_id=str(data['sketchfab_model_id']).strip(),
-                    color_vehiculo=str(data['color_vehiculo']).strip(),
-                    asientos=int(data.get('asientos', 4)),
-                    cajuela=bool(data.get('cajuela', True))
-                )
-
-                # 2. Insertarlo en la tabla de Choferes en estado pendiente
-                Chofer.objects.create(
-                    perfil=perfil,
-                    vehiculo=nuevo_vehiculo,
-                    estado='pendiente',
-                    asientos_disponibles=int(data.get('asientos', 4))
-                )
-
-                return Response({
-                    "message": "¡Tu cuenta de cliente se ha promovido a Chofer! Pendiente de aprobación por el administrador."
-                }, status=status.HTTP_201_CREATED)
-
-            # =========================================================
-            # CASO B: REGISTRO COMPLETAMENTE NUEVO desde cero
-            # =========================================================
+            # 1. Obtener o crear el perfil
+            if perfil_id:
+                perfil = PerfilUsuario.objects.get(id_usuario=perfil_id)
+                perfil.rol = 'chofer'
+                perfil.save()
             else:
-                campos_completos = ['nombre', 'correo', 'password', 'marca', 'modelo', 'placas', 'anio', 'sketchfab_model_id', 'color_vehiculo']
-                if not all(k in data for k in campos_completos):
-                    return Response({"error": "Faltan campos obligatorios o el perfil_id no se envió correctamente."}, status=status.HTTP_400_BAD_REQUEST)
+                nombre = data.get('nombre')
+                correo = data.get('correo')
+                password = data.get('password')
 
-                correo = data['correo'].strip().lower()
+                if not nombre or not correo or not password:
+                    return JsonResponse({'error': 'Faltan datos personales'}, status=400)
 
-                # Validar duplicados de correo mapeando hacia el campo 'email' de la BD
-                if PerfilUsuario.objects.filter(email=correo).exists():  
-                    perfil_existente = PerfilUsuario.objects.get(email=correo)
-                    if Chofer.objects.filter(perfil=perfil_existente).exists():
-                        return Response({"message": "Este chofer ya se encuentra registrado."}, status=status.HTTP_200_OK)
-                    return Response({"error": "El correo ya está registrado como cliente. Inicia sesión primero para volverte chofer."}, status=status.HTTP_400_BAD_REQUEST)
-
-                # 1. Crear el Perfil de Usuario
-                nuevo_perfil = PerfilUsuario.objects.create(
-                    nombre=str(data['nombre']).strip(),
+                perfil = PerfilUsuario.objects.create(
+                    username=correo,
                     email=correo,
-                    password_hash=make_password(data['password']), # Usamos password_hash según tu modelo
+                    nombre=nombre,
+                    password_hash=password,
+                    es_chofer=True,
+                    es_cliente=False
                 )
 
-                # 2. Crear el Vehículo
-                nuevo_vehiculo = Vehiculo.objects.create(
-                    marca=str(data['marca']).strip(),
-                    modelo=str(data['modelo']).strip(),
-                    anio=int(data['anio']),
-                    placas=str(data['placas']).upper().strip(),
-                    sketchfab_model_id=str(data['sketchfab_model_id']).strip(),
-                    color_vehiculo=str(data['color_vehiculo']).strip(),
-                    asientos=int(data.get('asientos', 4)),
-                    cajuela=bool(data.get('cajuela', True))
-                )
+            # 2. Obtener datos del vehículo
+            marca = data.get('marca')
+            modelo = data.get('modelo')
+            anio = data.get('anio')
+            placas = data.get('placas')
 
-                # 3. Guardar Chofer enlazando el perfil y vehículo creados
-                Chofer.objects.create(
-                    perfil=nuevo_perfil,
-                    vehiculo=nuevo_vehiculo,
-                    estado='pendiente',
-                    asientos_disponibles=int(data.get('asientos', 4))
-                )
+            # Acepta tanto 'total_asientos' como 'asientos'
+            asientos = data.get('total_asientos') or data.get('asientos') or 4
 
-                return Response({
-                    "message": "Chofer y vehículo registrados exitosamente. En espera de aprobación."
-                }, status=status.HTTP_201_CREATED)
+            # Acepta tanto 'tiene_cajuela' como 'cajuela'
+            cajuela = data.get('tiene_cajuela') if data.get('tiene_cajuela') is not None else data.get('cajuela', True)
 
-    except Exception as e:
-        print(f"Error en servidor: {str(e)}")
-        return Response({"error": f"Error interno: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            if not marca or not modelo or not anio or not placas:
+                return JsonResponse({'error': 'Faltan datos del vehiculo para realizar la promocion'}, status=400)
+
+            # 3. Crear el vehículo en DB
+            vehiculo = Vehiculo.objects.create(
+                marca=marca,
+                modelo=modelo,
+                anio=int(anio),
+                placas=placas,
+                total_asientos=int(asientos),
+                tiene_cajuela=bool(cajuela)
+            )
+
+            # 4. Asignar el vehículo al chofer
+            chofer, created = Chofer.objects.get_or_create(perfil=perfil)
+            chofer.vehiculo = vehiculo
+            chofer.estado = 'activo'
+            chofer.asientos_disponibles = int(asientos)
+            chofer.save()
+
+            return JsonResponse({'message': '¡Registro y promoción de chofer completada!'}, status=200)
+
+        except PerfilUsuario.DoesNotExist:
+            return JsonResponse({'error': 'El usuario no existe'}, status=404)
+        except Exception as e:
+            return JsonResponse({'error': f'Error en servidor: {str(e)}'}, status=500)
+
+    return JsonResponse({'error': 'Método no permitido'}, status=405)
