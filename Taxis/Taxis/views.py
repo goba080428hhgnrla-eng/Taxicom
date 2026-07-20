@@ -61,28 +61,32 @@ def admin_dashboard(request):
     }
     return render(request, 'taxis/dashboard.html', context)
 
-@login_panel_required
 def gestion_choferes(request):
-    """Lista completa para recibir, aceptar o rechazar taxistas"""
-    pendientes = Chofer.objects.filter(estado='pendiente')
-    todos = Chofer.objects.exclude(estado='pendiente')
-    
-    if request.method == 'POST':
-        chofer_id = request.POST.get('chofer_id')
-        accion = request.POST.get('accion')
-        chofer = get_object_or_404(Chofer, id=chofer_id)
+    if request.method == "POST":
+        chofer_id = request.POST.get("chofer_id")
+        accion = request.POST.get("accion")
         
-        if accion == 'aceptar':
-            chofer.estado = 'activo'
-        elif accion == 'rechazar':
-            chofer.estado = 'inactivo'
-        chofer.save()
+        try:
+            chofer = Chofer.objects.get(id=chofer_id)
+            if accion == "aceptar":
+                chofer.estado = "activo"  
+            elif accion == "rechazar":
+                chofer.estado = "inactivo"
+            chofer.save()
+        except Chofer.DoesNotExist:
+            pass
+            
         return redirect('gestion_choferes')
 
-    return render(request, 'taxis/gestion_choferes.html', {
+    pendientes = Chofer.objects.filter(estado='pendiente').select_related('perfil', 'vehiculo')
+    
+    activos = Chofer.objects.filter(estado__in=['activo', 'en_ruta']).select_related('perfil', 'vehiculo')
+
+    context = {
         'pendientes': pendientes,
-        'todos': todos
-    })
+        'activos': activos,
+    }
+    return render(request, 'gestion_choferes.html', context)
 
 @login_panel_required
 def asignar_roles(request):
