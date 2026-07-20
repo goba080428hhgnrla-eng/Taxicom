@@ -38,7 +38,7 @@ urlpatterns = [
     
     path('api/login/', api_views.api_login, name='api_login'),
     path('api/registro/', api_views.api_registro_cliente, name='api_registro_cliente'),
-    path('api/registro/chofer/', views.registro_usuario_o_chofer, name='registro_usuario_o_chofer'),
+    path('api/registro/chofer/', api_views.registro_usuario_o_chofer, name='registro_usuario_o_chofer'),
     path('api/chofer/modalidad/', api_views.api_cambiar_modalidad_chofer, name='api_cambiar_modalidad_chofer'),
     path('api/viaje/solicitar/', api_views.api_solicitar_viaje_especial, name='api_solicitar_viaje_especial'),
 ]
