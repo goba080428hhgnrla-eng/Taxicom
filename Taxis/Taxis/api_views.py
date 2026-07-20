@@ -337,20 +337,20 @@ from django.contrib.auth.hashers import make_password
 def registro_usuario_o_chofer(request):
     data = request.data
     
-    # Extraer el ID de perfil si el usuario ya está logueado como cliente
+    # Intentar obtener el ID del perfil desde los datos enviados por la app
     perfil_id = data.get('perfil_id', None)
 
     try:
         with transaction.atomic():
             # =========================================================
-            # CASO A: EL USUARIO YA ESTÁ LOGUEADO (Promoción a Chofer)
+            # CASO A: EL USUARIO YA ESTÁ LOGUEADO COMO CLIENTE
             # =========================================================
-            if perfil_id is not None:
-                # Verificar si el perfil existe
+            if perfil_id is not None and str(perfil_id).strip() != "":
+                # Verificar si el perfil existe usando 'id_usuario' como clave primaria
                 try:
-                    perfil = PerfilUsuario.objects.get(id=perfil_id)
+                    perfil = PerfilUsuario.objects.get(id_usuario=perfil_id)
                 except PerfilUsuario.DoesNotExist:
-                    return Response({"error": "El perfil de usuario especificado no existe."}, status=status.HTTP_404_NOT_FOUND)
+                    return Response({"error": f"El perfil de usuario con ID {perfil_id} no existe."}, status=status.HTTP_404_NOT_FOUND)
 
                 # Validar si ya es Chofer para evitar el bug de doble petición de Volley
                 if Chofer.objects.filter(perfil=perfil).exists():
@@ -391,13 +391,13 @@ def registro_usuario_o_chofer(request):
             else:
                 campos_completos = ['nombre', 'correo', 'password', 'marca', 'modelo', 'placas', 'anio', 'sketchfab_model_id', 'color_vehiculo']
                 if not all(k in data for k in campos_completos):
-                    return Response({"error": "Faltan campos obligatorios para el registro inicial."}, status=status.HTTP_400_BAD_REQUEST)
+                    return Response({"error": "Faltan campos obligatorios o el perfil_id no se envió correctamente."}, status=status.HTTP_400_BAD_REQUEST)
 
                 correo = data['correo'].strip().lower()
 
-                # Validar duplicados de correo por protección
-                if PerfilUsuario.objects.filter(correo=correo).exists():
-                    perfil_existente = PerfilUsuario.objects.get(correo=correo)
+                # Validar duplicados de correo mapeando hacia el campo 'email' de la BD
+                if PerfilUsuario.objects.filter(email=correo).exists():  
+                    perfil_existente = PerfilUsuario.objects.get(email=correo)
                     if Chofer.objects.filter(perfil=perfil_existente).exists():
                         return Response({"message": "Este chofer ya se encuentra registrado."}, status=status.HTTP_200_OK)
                     return Response({"error": "El correo ya está registrado como cliente. Inicia sesión primero para volverte chofer."}, status=status.HTTP_400_BAD_REQUEST)
@@ -405,8 +405,8 @@ def registro_usuario_o_chofer(request):
                 # 1. Crear el Perfil de Usuario
                 nuevo_perfil = PerfilUsuario.objects.create(
                     nombre=str(data['nombre']).strip(),
-                    correo=correo,
-                    password=make_password(data['password']),
+                    email=correo,
+                    password_hash=make_password(data['password']), # Usamos password_hash según tu modelo
                 )
 
                 # 2. Crear el Vehículo
