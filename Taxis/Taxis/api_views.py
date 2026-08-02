@@ -295,4 +295,10 @@ def api_registro_chofer(request):
     except json.JSONDecodeError:
         return JsonResponse({'status': 'error', 'message': 'JSON inválido'}, status=400)
     except Exception as e:
-        return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+        import traceback
+        print(traceback.format_exc())
+
+        return JsonResponse({
+            'status': 'error',
+            'message': str(e)
+        }, status=500)
