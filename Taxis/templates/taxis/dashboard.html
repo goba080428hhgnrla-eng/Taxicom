@@ -28,19 +28,58 @@
     </div>
 </div>
 
+<!-- Incluimos Leaflet por si base.html no lo tiene cargado -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
 <script>
-    // Inicializar mapa centrado en la región
+    // 1. Inicializar mapa
     const map = L.map('map').setView([19.4326, -99.1332], 13);
 
-    // Capa de CartoDB DarkMatter para integrarse con la UI oscura
     L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
         attribution: '&copy; OpenStreetMap &copy; CARTO'
     }).addTo(map);
 
-    // Diccionario para almacenar marcadores activos
     const markers = {};
 
-    // Función para renderizar / actualizar marcadores en el mapa
+    // Icono personalizado para los Taxis
+    const taxiIcon = L.icon({
+        iconUrl: 'https://cdn-icons-png.flaticon.com/512/3448/3448339.png',
+        iconSize: [36, 36],
+        iconAnchor: [18, 18],
+        popupAnchor: [0, -18]
+    });
+
+    /**
+     * Anima suavemente el movimiento del marcador desde su origen al destino
+     */
+    function moverMarcadorFluidamente(marker, targetLat, targetLng, duracion = 2000) {
+        const startLatLng = marker.getLatLng();
+        const startLat = startLatLng.lat;
+        const startLng = startLatLng.lng;
+
+        if (startLat === targetLat && startLng === targetLng) return;
+
+        const startTime = performance.now();
+
+        function animar(currentTime) {
+            const elapsedTime = currentTime - startTime;
+            const progress = Math.min(elapsedTime / duracion, 1);
+
+            const currentLat = startLat + (targetLat - startLat) * progress;
+            const currentLng = startLng + (targetLng - startLng) * progress;
+
+            marker.setLatLng([currentLat, currentLng]);
+
+            if (progress < 1) {
+                requestAnimationFrame(animar);
+            }
+        }
+
+        requestAnimationFrame(animar);
+    }
+
+    // 2. Función principal para renderizar o actualizar vehículos
     function crearOActualizarMarcador(id, lat, lng, nombre, auto, sketchfabId, asientos) {
         if (!lat || !lng || parseFloat(lat) === 0.0) return;
 
@@ -58,14 +97,18 @@
         `;
 
         if (markers[id]) {
-            markers[id].setLatLng([lat, lng]);
+            // Actualización suave
+            moverMarcadorFluidamente(markers[id], parseFloat(lat), parseFloat(lng), 2000);
             markers[id].getPopup().setContent(popupContent);
         } else {
-            markers[id] = L.marker([lat, lng]).addTo(map).bindPopup(popupContent);
+            // Creación inicial
+            markers[id] = L.marker([lat, lng], { icon: taxiIcon })
+                .addTo(map)
+                .bindPopup(popupContent);
         }
     }
 
-    // Cargamos la ubicación inicial de los choferes que vienen desde el backend Django
+    // 3. Cargar posiciones iniciales desde el renderizado de Django
     {% for chofer in choferes %}
         {% if chofer.latitud and chofer.longitud %}
             crearOActualizarMarcador(
@@ -80,14 +123,12 @@
         {% endif %}
     {% endfor %}
 
-    // --- CONEXIÓN A WEBSOCKET (Django Channels) ---
+    // 4. WebSocket (Django Channels)
     const wsScheme = window.location.protocol === "https:" ? "wss" : "ws";
     const trackingSocket = new WebSocket(`${wsScheme}://${window.location.host}/ws/tracking/`);
 
     trackingSocket.onmessage = function(e) {
         const data = JSON.parse(e.data);
-
-        // Actualizamos o agregamos el marcador con los datos en tiempo real recibidos por WS
         crearOActualizarMarcador(
             data.chofer_id,
             data.lat,
@@ -99,8 +140,29 @@
         );
     };
 
-    trackingSocket.onclose = function(e) {
-        console.error('El canal de rastreo por WebSocket se cerró inesperadamente.');
-    };
+    // 5. Polling de Respaldo (Si WebSocket falla o no está configurado)
+    function consultarPolingRespaldo() {
+        if (trackingSocket.readyState !== WebSocket.OPEN) {
+            fetch("{% url 'api_choferes_activos_mapa' %}")
+                .then(res => res.json())
+                .then(data => {
+                    data.choferes.forEach(c => {
+                        crearOActualizarMarcador(
+                            c.chofer_id,
+                            c.lat,
+                            c.lng,
+                            c.nombre,
+                            c.vehiculo,
+                            c.sketchfab_id,
+                            c.asientos_disponibles
+                        );
+                    });
+                })
+                .catch(err => console.error("Error en polling:", err));
+        }
+    }
+
+    // Revisa periódicamente cada 4 segundos como respaldo
+    setInterval(consultarPolingRespaldo, 4000);
 </script>
 {% endblock %}
