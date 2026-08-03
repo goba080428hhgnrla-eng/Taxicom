@@ -81,6 +81,7 @@ class Chofer(models.Model):
     )
     perfil = models.OneToOneField(PerfilUsuario, on_delete=models.CASCADE, related_name='chofer_datos')
     vehiculo = models.OneToOneField(Vehiculo, on_delete=models.SET_NULL, null=True, blank=True, related_name='chofer_actual')
+    base = models.ForeignKey('Base', on_delete=models.SET_NULL, null=True, blank=True, related_name='choferes')
     estado = models.CharField(max_length=20, choices=ESTADOS, default='pendiente', db_index=True)
     grupo_rol = models.CharField(max_length=20, blank=True, null=True)
     asientos_disponibles = models.IntegerField(default=4)
@@ -90,6 +91,36 @@ class Chofer(models.Model):
     longitud = models.FloatField(default=0.0, db_index=True)
     ultima_actualizacion = models.DateTimeField(auto_now=True)
 
+    def pagar_rol(self, monto):
+        """
+        Logica para que el chofer pague su cuota del día.
+        Retorna True si se pudo pagar, False si ya había pagado.
+        """
+        from django.utils import timezone
+        
+        # verificamos si ya tiene un pago hoy
+        hoy = timezone.now().date()
+        pago_hoy = self.viajes_atendidos.filter(
+            pago__fecha_pago__date=hoy
+        ).exists()
+
+        if pago_hoy:
+            return False  # ya pago hoy
+
+        # di no ha pagado, se crea un pago de prueba
+        nuevo_pago = Pago.objects.create(
+            viaje=None,  # es un pago de rol, no de un viaje especifico
+            monto=monto,
+            metodo_pago='efectivo',
+            estado='pagado'
+        )
+        
+        # actualizamos su estado para que pueda trabajar
+        if self.estado == 'inactivo':
+            self.estado = 'activo'
+            self.save()
+        
+        return True
     class Meta:
         verbose_name = 'Chofer'
         verbose_name_plural = 'Choferes'
@@ -127,3 +158,64 @@ class Viaje(models.Model):
     estado = models.CharField(max_length=20, choices=ESTADOS_VIAJE, default='solicitado', db_index=True)
     fecha_creacion = models.DateTimeField(auto_now_add=True)
     calificacion = models.IntegerField(null=True, blank=True, validators=[MinValueValidator(1), MaxValueValidator(5)])
+
+class Ruta(models.Model):
+    nombre = models.CharField(max_length=100)
+    descripcion = models.TextField(blank=True, null=True)
+
+    def __str__(self):
+        return self.nombre
+
+
+class Base(models.Model):
+    nombre = models.CharField(max_length=100)
+    direccion = models.TextField()
+    latitud = models.FloatField(default=0.0)
+    longitud = models.FloatField(default=0.0)
+    telefono = models.CharField(max_length=15, blank=True, null=True)
+    
+    def __str__(self):
+        return self.nombre
+
+
+class AdministradorBase(models.Model):
+    perfil = models.OneToOneField(PerfilUsuario, on_delete=models.CASCADE, related_name='admin_base')
+    base = models.ForeignKey(Base, on_delete=models.CASCADE, related_name='administradores')
+    
+    def __str__(self):
+        return f"Admin de {self.base.nombre}"
+
+
+class Parada(models.Model):
+    nombre = models.CharField(max_length=100)
+    latitud = models.FloatField()
+    longitud = models.FloatField()
+    direccion = models.CharField(max_length=255, blank=True)
+
+    def __str__(self):
+        return self.nombre
+
+
+class RutaParada(models.Model):
+    ruta = models.ForeignKey(Ruta, on_delete=models.CASCADE)  # Ahora Ruta ya existe arriba
+    parada = models.ForeignKey(Parada, on_delete=models.CASCADE)
+    orden = models.IntegerField()
+
+    class Meta:
+        ordering = ['orden']
+
+
+class Pago(models.Model):
+    ESTADOS_PAGO = (
+        ('pendiente', 'Pendiente'),
+        ('pagado', 'Pagado'),
+        ('rechazado', 'Rechazado'),
+    )
+    viaje = models.OneToOneField(Viaje, on_delete=models.CASCADE, related_name='pago')
+    monto = models.DecimalField(max_digits=10, decimal_places=2)
+    metodo_pago = models.CharField(max_length=20, default='efectivo')
+    estado = models.CharField(max_length=20, choices=ESTADOS_PAGO, default='pendiente')
+    fecha_pago = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Pago Viaje #{self.viaje.id} - {self.monto}"
