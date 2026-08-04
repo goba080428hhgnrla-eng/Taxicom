@@ -3,6 +3,7 @@ from django.core.validators import MinValueValidator, MaxValueValidator
 from django.contrib.auth.hashers import make_password, check_password
 
 
+
 class PerfilUsuario(models.Model):
     id_usuario = models.AutoField(primary_key=True)
     username = models.CharField(max_length=50, unique=True, db_index=True)
@@ -92,35 +93,28 @@ class Chofer(models.Model):
     ultima_actualizacion = models.DateTimeField(auto_now=True)
 
     def pagar_rol(self, monto):
-        """
-        Logica para que el chofer pague su cuota del día.
-        Retorna True si se pudo pagar, False si ya había pagado.
-        """
         from django.utils import timezone
-        
-        # verificamos si ya tiene un pago hoy
+        from .models import PagoRol  
+      
         hoy = timezone.now().date()
-        pago_hoy = self.viajes_atendidos.filter(
-            pago__fecha_pago__date=hoy
-        ).exists()
+        # Verificar si ya pago hoy en la tabla PagoRol
+        if PagoRol.objects.filter(chofer=self, fecha_pago__date=hoy, estado='pagado').exists():
+            return False  # Ya pagó hoy
 
-        if pago_hoy:
-            return False  # ya pago hoy
-
-        # di no ha pagado, se crea un pago de prueba
-        nuevo_pago = Pago.objects.create(
-            viaje=None,  # es un pago de rol, no de un viaje especifico
+        # si no ha pagado creamos el registro en PagoRol
+        PagoRol.objects.create(
+            chofer=self,
             monto=monto,
-            metodo_pago='efectivo',
             estado='pagado'
         )
-        
-        # actualizamos su estado para que pueda trabajar
+
+        #si estaba inactivo, lo activamos
         if self.estado == 'inactivo':
             self.estado = 'activo'
             self.save()
         
         return True
+    
     class Meta:
         verbose_name = 'Chofer'
         verbose_name_plural = 'Choferes'
@@ -157,7 +151,6 @@ class Viaje(models.Model):
     requiere_cajuela = models.BooleanField(default=False)
     estado = models.CharField(max_length=20, choices=ESTADOS_VIAJE, default='solicitado', db_index=True)
     fecha_creacion = models.DateTimeField(auto_now_add=True)
-    calificacion = models.IntegerField(null=True, blank=True, validators=[MinValueValidator(1), MaxValueValidator(5)])
 
 class Ruta(models.Model):
     nombre = models.CharField(max_length=100)
@@ -219,3 +212,82 @@ class Pago(models.Model):
 
     def __str__(self):
         return f"Pago Viaje #{self.viaje.id} - {self.monto}"
+
+    #modelos faltantes
+
+class Calificacion(models.Model):
+    viaje = models.OneToOneField(Viaje, on_delete=models.CASCADE, related_name='calificacion')
+    puntaje = models.IntegerField(validators=[MinValueValidator(1), MaxValueValidator(5)])
+    comentario = models.TextField(blank=True, null=True)
+    fecha = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Calificación #{self.id} - {self.puntaje} estrellas"
+
+
+class ViajeEspecial(models.Model):
+    TIPOS = (
+        ('contratado', 'Servicio Contratado'),
+        ('paquete', 'Paquete Turístico'),
+        ('personalizado', 'Personalizado'),
+    )
+    ESTADOS = (
+        ('solicitado', 'Solicitado'),
+        ('aceptado', 'Aceptado'),
+        ('finalizado', 'Finalizado'),
+    )
+    cliente = models.ForeignKey(PerfilUsuario, on_delete=models.CASCADE, related_name='viajes_especiales')
+    chofer = models.ForeignKey(Chofer, on_delete=models.SET_NULL, null=True, blank=True)
+    tipo = models.CharField(max_length=20, choices=TIPOS, default='contratado')
+    origen = models.CharField(max_length=255)
+    destino = models.CharField(max_length=255)
+    estado = models.CharField(max_length=20, choices=ESTADOS, default='solicitado')
+    fecha_creacion = models.DateTimeField(auto_now_add=True)
+    monto_total = models.DecimalField(max_digits=10, decimal_places=2, default=0.0)
+    pago = models.OneToOneField(Pago, on_delete=models.SET_NULL, null=True, blank=True, related_name='viaje_especial')
+    def __str__(self):
+        return f"Viaje Especial #{self.id} - {self.tipo}"
+
+
+class Incomprobante(models.Model):
+    pago = models.OneToOneField(Pago, on_delete=models.CASCADE, related_name='incomprobante')
+    archivo = models.FileField(upload_to='comprobantes/', blank=True, null=True)  
+    fecha_subida = models.DateTimeField(auto_now_add=True)
+    estado = models.CharField(max_length=20, default='pendiente')  # pendiente, verificado, rechazado
+    
+    def __str__(self):
+        return f"Comprobante de pago #{self.pago.id}"
+
+
+
+
+class Notificacion(models.Model):
+
+    TIPOS = (
+        ('asignacion_viaje', 'Asignación de Viaje'),
+        ('pago_rol', 'Pago de Rol'),
+        ('calificacion', 'Nueva Calificación'),
+    )
+
+    usuario = models.ForeignKey(PerfilUsuario, on_delete=models.CASCADE,
+     related_name='notificaciones')
+    tipo = models.CharField(max_length=20, choices=TIPOS)
+    mensaje = models.TextField()
+    leida = models.BooleanField(default=False)
+    fecha_creacion = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.tipo} - {self.usuario.nombre}"
+
+class PagoRol(models.Model):
+    ESTADOS = (
+        ('pendiente', 'Pendiente'),
+        ('pagado', 'Pagado'),
+    )
+    chofer = models.ForeignKey(Chofer, on_delete=models.CASCADE, related_name='pagos_rol')
+    monto = models.DecimalField(max_digits=10, decimal_places=2)
+    fecha_pago = models.DateTimeField(auto_now_add=True)
+    estado = models.CharField(max_length=20, choices=ESTADOS, default='pagado')
+    
+    def __str__(self):
+        return f"Pago de rol - {self.chofer} - ${self.monto}"
