@@ -2,14 +2,17 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CentralTaxi</title>
-    <!-- Incluye el CSS y JS compilado por Vite -->
-    <link rel="stylesheet" href="{% static 'frontend/assets/index.css' %}">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Taxicom</title>
+  
+  <!-- Carga el CSS estático -->
+  <link rel="stylesheet" href="{% static 'frontend/assets/index.css' %}" />
 </head>
-<body class="bg-gray-950 text-gray-100 min-h-screen">
-    <div id="root"></div>
-    <script type="module" src="{% static 'frontend/assets/index.js' %}"></script>
+<body>
+  <div id="root"></div>
+
+  <!-- Carga el JavaScript estático -->
+  <script type="module" src="{% static 'frontend/assets/index.js' %}"></script>
 </body>
 </html>
