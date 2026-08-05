@@ -31,10 +31,10 @@ urlpatterns = [
     
     # APIs de React 
     # API endpoints para el Panel Web React
-    path('api/web/login/', api_views.api_web_login, name='api_web_login'),
+    path('api/web/login/', views.api_web_login, name='api_web_login'),
     path('api/web/choferes-activos/', views.api_choferes_activos_mapa, name='api_choferes_activos_mapa'),
-    path('api/web/gestion-choferes/', api_views.api_gestion_choferes, name='api_gestion_choferes'),
-    path('api/web/roles/', api_views.api_roles, name='api_roles'),
+    path('api/web/gestion-choferes/',views.api_gestion_choferes, name='api_gestion_choferes'),
+    path('api/web/roles/',views.api_roles, name='api_roles'),
 
     # Renderizador SPA de React
     re_path(r'^.*$', TemplateView.as_view(template_name='taxis/react_base.html')),
