@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/Layout';
 import HomePublico from './pages/HomePublico';
 import Login from './pages/Login';
@@ -13,11 +13,15 @@ export default function App() {
       <Routes>
         <Route path="/" element={<HomePublico />} />
         <Route path="/login" element={<Login />} />
+        
+        {/* Soporte para la ruta /admin */}
         <Route path="/admin" element={<Layout />}>
           <Route index element={<Dashboard />} />
           <Route path="choferes" element={<GestionChoferes />} />
           <Route path="roles" element={<AsignarRoles />} />
         </Route>
+
+        <Route path="/dashboard" element={<Navigate to="/admin" replace />} />
       </Routes>
     </BrowserRouter>
   );
