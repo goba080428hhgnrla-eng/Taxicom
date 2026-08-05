@@ -1,11 +1,11 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import Layout from './components/Layout';
-import HomePublico from './pages/HomePublico';
-import Login from './pages/Login';
-import Dashboard from './pages/Dashboard';
-import GestionChoferes from './pages/GestionChoferes';
-import AsignarRoles from './pages/AsignarRoles';
+import Layout from './components/Layout.jsx';
+import HomePublico from './pages/HomePublico.jsx';
+import Login from './pages/Login.jsx';
+import Dashboard from './pages/Dashboard.jsx';
+import GestionChoferes from './pages/GestionChoferes.jsx';
+import AsignarRoles from './pages/AsignarRoles.jsx';
 
 export default function App() {
   return (
@@ -14,7 +14,7 @@ export default function App() {
         <Route path="/" element={<HomePublico />} />
         <Route path="/login" element={<Login />} />
         
-        {/* Soporte para la ruta /admin */}
+        {/* Rutas administrativas */}
         <Route path="/admin" element={<Layout />}>
           <Route index element={<Dashboard />} />
           <Route path="choferes" element={<GestionChoferes />} />
