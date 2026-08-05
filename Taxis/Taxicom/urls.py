@@ -2,6 +2,8 @@ from django.contrib import admin
 from django.urls import path, include, re_path
 from django.views.generic import TemplateView
 from Taxis import views, api_views 
+from django.conf.urls.static import static
+from django.conf import settings
 
 urlpatterns = [
     path('admin_django/', admin.site.urls), 
@@ -14,3 +16,4 @@ urlpatterns = [
     
     re_path(r'^.*$', TemplateView.as_view(template_name='taxis/react_base.html')),
 ]
+urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)
