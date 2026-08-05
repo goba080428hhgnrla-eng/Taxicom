@@ -5,7 +5,8 @@ import tailwindcss from '@tailwindcss/vite';
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   build: {
-    outDir: '../static/frontend', 
+    // Genera la compilación en la carpeta static de la raíz
+    outDir: '../static/frontend',
     emptyOutDir: true,
     rollupOptions: {
       output: {
