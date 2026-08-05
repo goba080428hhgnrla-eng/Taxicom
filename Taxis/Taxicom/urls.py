@@ -1,5 +1,6 @@
 from django.contrib import admin
-from django.urls import path, include
+from django.urls import path, include, re_path
+from django.views.generic import TemplateView
 from Taxis import views, api_views 
 
 urlpatterns = [
@@ -10,4 +11,6 @@ urlpatterns = [
     path('api/viaje/especial/solicitar/', api_views.api_solicitar_viaje_especial, name='api_solicitar_especial'),
     
     path('', include('Taxis.urls')),
+    
+    re_path(r'^.*$', TemplateView.as_view(template_name='taxis/react_base.html')),
 ]
