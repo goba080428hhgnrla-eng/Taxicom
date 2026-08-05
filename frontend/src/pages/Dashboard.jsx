@@ -103,28 +103,36 @@ export default function Dashboard() {
   }, []);
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-      <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 h-[600px] flex flex-col">
-        <h2 className="text-base font-bold pb-3 border-b border-slate-100 text-slate-900 flex items-center space-x-2">
-          <span>🚕</span> <span>Vehículos en Circulación</span>
-        </h2>
+    <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 p-6 max-w-7xl mx-auto font-sans antialiased">
+      {/* Sidebar - Lista de Vehículos */}
+      <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 h-[650px] flex flex-col">
+        <div className="pb-4 border-b border-slate-100 flex items-center justify-between">
+          <h2 className="text-base font-bold text-slate-900 flex items-center space-x-2">
+            <span>Vehículos en Circulación</span>
+          </h2>
+          <span className="bg-amber-100 text-amber-900 text-xs font-bold px-2.5 py-0.5 rounded-full">
+            {choferes.length}
+          </span>
+        </div>
+        
         <div className="space-y-3 mt-4 overflow-y-auto flex-1 pr-1">
           {choferes.length > 0 ? (
             choferes.map((c) => (
-              <div key={c.chofer_id} className="p-3.5 bg-slate-50 rounded-xl border border-slate-200/80 hover:border-amber-300 transition">
-                <p className="font-semibold text-slate-800 text-sm">{c.nombre}</p>
+              <div key={c.chofer_id} className="p-4 bg-slate-50/70 rounded-2xl border border-slate-200/80 hover:border-amber-300 transition-colors">
+                <p className="font-bold text-slate-900 text-sm">{c.nombre}</p>
                 <p className="text-xs text-slate-500 mt-0.5">
                   Vehículo: <span className="font-medium text-slate-700">{c.vehiculo}</span>
                 </p>
                 <div className="mt-3 flex items-center justify-between">
                   <span
-                    className={`px-2.5 py-0.5 text-[11px] font-bold rounded-full ${
+                    className={`inline-flex items-center space-x-1.5 px-2.5 py-1 text-[11px] font-bold rounded-full uppercase tracking-wider ${
                       c.estado === 'En Ruta'
-                        ? 'bg-emerald-100 text-emerald-800'
-                        : 'bg-amber-100 text-amber-800'
+                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/60'
+                        : 'bg-amber-50 text-amber-700 border border-amber-200/60'
                     }`}
                   >
-                    {c.estado}
+                    <span className={`w-1.5 h-1.5 rounded-full ${c.estado === 'En Ruta' ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
+                    <span>{c.estado}</span>
                   </span>
                   <span className="text-xs text-slate-500">
                     Libres: <b className="text-slate-800">{c.asientos_disponibles}</b>
@@ -133,14 +141,15 @@ export default function Dashboard() {
               </div>
             ))
           ) : (
-            <p className="text-slate-400 text-sm text-center py-8">
-              No hay vehículos en circulación actualmente.
-            </p>
+            <div className="text-center py-12">
+              <p className="text-slate-400 text-sm">No hay vehículos en circulación actualmente.</p>
+            </div>
           )}
         </div>
       </div>
 
-      <div className="lg:col-span-3 bg-white rounded-2xl shadow-sm border border-slate-200 relative h-[600px] overflow-hidden">
+      {/* Visor del Mapa */}
+      <div className="lg:col-span-3 bg-white rounded-3xl shadow-sm border border-slate-200 relative h-[650px] overflow-hidden">
         <div ref={mapRef} className="w-full h-full z-0"></div>
       </div>
     </div>
