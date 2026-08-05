@@ -302,3 +302,91 @@ def api_registro_chofer(request):
             'status': 'error',
             'message': str(e)
         }, status=500)
+
+
+# NUEVAS VISTAS PARA MODELOS AGREGADOS
+
+@csrf_exempt
+def api_crear_calificacion(request):
+    """Endpoint para que el pasajero califique un viaje terminado.
+    recibe viaje_id, puntaje, comentario 
+    """
+    if request.method != 'POST':
+        return JsonResponse({'status': 'error', 'message': 'Metodo no permitido'}, status=405)
+
+    try:
+        data = json.loads(request.body)
+        viaje_id = data.get('viaje_id')
+        puntaje = data.get('puntaje')
+        comentario = data.get('comentario', '')
+
+        if not viaje_id or not puntaje:
+            return JsonResponse({'status': 'error', 'message': 'Faltan viaje_id o puntaje'}, status=400)
+
+        from .models import Viaje, Calificacion
+
+        #buscar el viaje
+        viaje = Viaje.objects.get(id=viaje_id)
+
+        #verifica si ya tiene calificacion
+        if hasattr(viaje, 'calificacion'):
+            return JsonResponse({'status': 'error', 'message': 'Este viaje ya fue calificado'}, status=400)
+
+        #crear la calificacion
+        calificacion = Calificacion.objects.create(
+            viaje=viaje,
+            puntaje=int(puntaje),
+            comentario=comentario
+        )
+
+        return JsonResponse({
+            'status': 'ok',
+            'calificacion_id': calificacion.id,
+            'message': 'Calificación guardada exitosamente'
+        }, status=201)
+
+    except Viaje.DoesNotExist:
+        return JsonResponse({'status': 'error', 'message': 'Viaje no encontrado'}, status=404)
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+
+
+@csrf_exempt
+def api_pagar_rol(request):
+    """endpoint para que el chofer pague su cuota diaria desde la app.
+    recibe el chofer_id, monto
+    """
+    if request.method != 'POST':
+        return JsonResponse({'status': 'error', 'message': 'Método no permitido'}, status=405)
+
+    try:
+        data = json.loads(request.body)
+        chofer_id = data.get('chofer_id')
+        monto = data.get('monto')
+
+        if not chofer_id or not monto:
+            return JsonResponse({'status': 'error', 'message': 'Faltan chofer_id o monto'}, status=400)
+
+        from .models import Chofer
+
+        #buscar el chofer
+        chofer = Chofer.objects.get(id=chofer_id)
+
+        # ejecutar la logica de pago
+        resultado = chofer.pagar_rol(float(monto))
+
+        if resultado:
+            return JsonResponse({
+                'status': 'ok',
+                'message': 'Pago de rol realizado y chofer activado.'
+            }, status=200)
+        else:
+            return JsonResponse({
+                'status': 'error',
+                'message': 'El chofer ya pagó el rol hoy.'
+            }, status=400)
+
+    except Chofer.DoesNotExist:
+        return JsonResponse({'status': 'error', 'message': 'Chofer no encontrado'}, status=404)
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': str(e)}, status=500)

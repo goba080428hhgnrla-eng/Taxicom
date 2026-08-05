@@ -25,4 +25,8 @@ urlpatterns = [
     path('api/registro/chofer/', api_views.api_registro_chofer, name='registro_usuario_o_chofer'), # Corregido
     path('api/chofer/modalidad/', api_views.api_cambiar_modalidad_chofer, name='api_cambiar_modalidad_chofer'),
     path('api/viaje/solicitar/', api_views.api_solicitar_viaje_especial, name='api_solicitar_viaje_especial'),
+
+ # Nuevas apis agregadas de los modelos
+    path('api/calificacion/crear/', api_views.api_crear_calificacion, name='api_crear_calificacion'),
+    path('api/chofer/pagar-rol/', api_views.api_pagar_rol, name='api_pagar_rol'),
 ]
