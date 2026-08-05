@@ -5,8 +5,10 @@ from pathlib import Path
 Django settings for agoconecta / Taxicom project.
 """
 
-# Sube 3 niveles desde settings/base.py hasta la raíz del repositorio
-BASE_DIR = Path(__file__).resolve().parent.parent.parent
+BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent
+
+
+print(f"DEBUG BASE_DIR: {BASE_DIR}")
 
 SECRET_KEY = 'django-insecure-d(6h-umj3bkd9l&9*1-$z+m(i7-jhjlvsj*je%_&q+=u85zju^'
 
@@ -38,13 +40,12 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = 'Taxicom.urls'
 
-# Configuración flexible de plantillas
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
         'DIRS': [
-            os.path.join(BASE_DIR, 'templates'),
-            os.path.join(BASE_DIR, 'Taxis', 'templates'),
+            BASE_DIR / 'templates',
+            BASE_DIR / 'Taxis' / 'templates',
         ],
         'APP_DIRS': True,
         'OPTIONS': {
