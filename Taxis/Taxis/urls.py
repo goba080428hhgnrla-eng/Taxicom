@@ -6,7 +6,6 @@ from Taxis import api_views
 
 urlpatterns = [
     # Panel de Administración propio de Django
-    path('admin_django/', admin.site.urls), 
 
     # APIs PARA APP ANDROID Y SISTEMA DE UBICACIÓN
     path('api/chofer/ubicacion/', views.actualizar_ubicacion_chofer, name='actualizar_ubicacion_chofer'),
