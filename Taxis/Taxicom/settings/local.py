@@ -45,9 +45,16 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 SUPABASE_BUCKET = os.getenv("SUPABASE_BUCKET")
 
-STATIC_URL = "/static/"
-STATICFILES_DIRS = [BASE_DIR / "static"]
-STATIC_ROOT = BASE_DIR / "staticfiles"
+STATIC_URL = '/static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+
+# Solo incluimos la carpeta 'static' de la raíz del proyecto
+STATICFILES_DIRS = [
+    BASE_DIR / 'static',
+]
+
+# Usar almacenamiento estándar comprimido de WhiteNoise
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedStaticFilesStorage'
 
 MEDIA_URL = "/media/"
 
@@ -56,10 +63,9 @@ STORAGES = {
         "BACKEND": "Taxis.storage_backends.SupabaseStorage",
     },
     "staticfiles": {
-        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+        "BACKEND": "whitenoise.storage.CompressedStaticFilesStorage",
     },
 }
-
 # =========================================================
 # SEGURIDAD
 # =========================================================

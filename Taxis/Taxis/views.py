@@ -199,3 +199,127 @@ def api_choferes_activos_mapa(request):
             })
 
     return JsonResponse({'choferes': data}, status=200)
+
+
+#Apis de react 
+
+import json
+from django.http import JsonResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.db.models import Q
+from .models import Chofer, RolDia, PerfilUsuario
+
+# ==========================================
+# ENDPOINTS API REST PARA EL PANEL WEB REACT
+# ==========================================
+
+@csrf_exempt
+def api_web_login(request):
+    if request.method != 'POST':
+        return JsonResponse({'status': 'error', 'message': 'Método no permitido'}, status=405)
+    try:
+        data = json.loads(request.body)
+        usuario_input = data.get('username')
+        password_input = data.get('password')
+
+        usuario = PerfilUsuario.objects.get(
+            Q(username=usuario_input) | Q(email=usuario_input)
+        )
+        if usuario.check_password(password_input):
+            if usuario.es_admin:
+                request.session['usuario_id'] = usuario.id_usuario
+                request.session['usuario_nombre'] = usuario.nombre
+                return JsonResponse({
+                    'status': 'ok',
+                    'usuario': {'id': usuario.id_usuario, 'nombre': usuario.nombre, 'email': usuario.email}
+                })
+            return JsonResponse({'status': 'error', 'message': 'Acceso denegado. No eres administrador.'}, status=403)
+        return JsonResponse({'status': 'error', 'message': 'Contraseña incorrecta.'}, status=401)
+    except PerfilUsuario.DoesNotExist:
+        return JsonResponse({'status': 'error', 'message': 'Usuario o correo no encontrado.'}, status=404)
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+
+
+def api_gestion_choferes(request):
+    if request.method == "POST":
+        try:
+            data = json.loads(request.body)
+            chofer_id = data.get("chofer_id")
+            accion = data.get("accion")
+            
+            chofer = Chofer.objects.get(id=chofer_id)
+            if accion == "aceptar":
+                chofer.estado = "activo"
+            elif accion == "rechazar":
+                chofer.estado = "inactivo"
+            chofer.save()
+            return JsonResponse({'status': 'ok'})
+        except Exception as e:
+            return JsonResponse({'status': 'error', 'message': str(e)}, status=400)
+
+    pendientes = Chofer.objects.filter(estado='pendiente').select_related('perfil', 'vehiculo')
+    activos = Chofer.objects.filter(estado__in=['activo', 'en_ruta']).select_related('perfil', 'vehiculo')
+
+    def serialize(query):
+        return [{
+            'id': c.id,
+            'perfil': {'nombre': c.perfil.nombre or '', 'apellido': c.perfil.apellido or '', 'telefono': getattr(c.perfil, 'telefono', '')},
+            'vehiculo': {'marca': c.vehiculo.marca, 'modelo': c.vehiculo.modelo, 'anio': getattr(c.vehiculo, 'anio', ''), 'placas': c.vehiculo.placas} if c.vehiculo else {},
+            'estado': c.estado,
+            'estado_display': c.get_estado_display()
+        } for c in query]
+
+    return JsonResponse({'pendientes': serialize(pendientes), 'activos': serialize(activos)})
+
+
+def api_roles(request):
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body)
+            accion = data.get('accion')
+
+            if accion == 'guardar_regla':
+                grupo = data.get('grupo', '').strip()
+                dias = data.get('dias', [])
+                RolDia.objects.filter(grupo=grupo).delete()
+                for d in dias:
+                    RolDia.objects.create(grupo=grupo, dia_semana=d)
+
+            elif accion == 'eliminar_grupo':
+                grupo = data.get('grupo', '').strip()
+                RolDia.objects.filter(grupo=grupo).delete()
+                Chofer.objects.filter(grupo_rol=grupo).update(grupo_rol=None)
+
+            elif accion == 'asignar_chofer':
+                chofer_id = data.get('chofer_id')
+                grupo_destino = data.get('grupo_rol', '').strip()
+                chofer = Chofer.objects.get(id=chofer_id)
+                chofer.grupo_rol = grupo_destino if grupo_destino else None
+                chofer.save()
+
+            return JsonResponse({'status': 'ok'})
+        except Exception as e:
+            return JsonResponse({'status': 'error', 'message': str(e)}, status=400)
+
+    roles_queryset = RolDia.objects.all()
+    grupos_configurados = {}
+    for r in roles_queryset:
+        if r.grupo not in grupos_configurados:
+            grupos_configurados[r.grupo] = []
+        grupos_configurados[r.grupo].append(r.dia_semana)
+
+    choferes = Chofer.objects.select_related('perfil').exclude(estado='pendiente')
+    choferes_data = [{
+        'id': c.id,
+        'perfil': {'nombre': c.perfil.nombre or '', 'apellido': c.perfil.apellido or '', 'telefono': getattr(c.perfil, 'telefono', '')},
+        'estado': c.estado,
+        'estado_display': c.get_estado_display(),
+        'grupo_rol': c.grupo_rol or ''
+    } for c in choferes]
+
+    return JsonResponse({
+        'grupos_configurados': grupos_configurados,
+        'choferes': choferes_data,
+        'dias_opciones': ['Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes', 'Sabado', 'Domingo']
+    })
