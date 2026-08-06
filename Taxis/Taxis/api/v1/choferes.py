@@ -18,6 +18,10 @@ from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from asgiref.sync import async_to_sync
+from channels.layers import get_channel_layer
+
+from Taxis.permissions import EsChofer
 
 from Taxis.models import Chofer
 from Taxis.permissions import EsChofer
@@ -71,7 +75,7 @@ class ActualizarUbicacionView(APIView):
 
         if lat is None or lng is None:
             return Response(
-                {"status": "error", "message": "Faltan parámetros 'latitud' o 'longitud'."},
+                {"status": "error", "message": "Faltan latitud o longitud."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -80,10 +84,23 @@ class ActualizarUbicacionView(APIView):
         chofer.longitud = lng
         chofer.save()
 
-        return Response(
-            {"status": "ok", "message": "Ubicación actualizada correctamente."},
-            status=status.HTTP_200_OK,
+        # Retransmitir en tiempo real a React a través de WebSockets
+        channel_layer = get_channel_layer()
+        async_to_sync(channel_layer.group_send)(
+            "mapa_choferes",
+            {
+                "type": "posicion_actualizada",
+                "data": {
+                    "id": chofer.id,
+                    "nombre": f"{request.user.first_name} {request.user.last_name}",
+                    "latitud": float(lat),
+                    "longitud": float(lng),
+                    "estado": chofer.estado,
+                },
+            },
         )
+
+        return Response({"status": "ok"}, status=status.HTTP_200_OK)
 
 
 class PagarRolView(APIView):

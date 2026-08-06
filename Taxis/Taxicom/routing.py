@@ -1,6 +1,6 @@
-from django.urls import path
+from django.urls import re_path
 from Taxis import consumers
 
 websocket_urlpatterns = [
-    path('ws/colectivos/', consumers.TaxiColectivoConsumer.as_asgi()),
+    re_path(r'^ws/colectivos/$', consumers.TaxiColectivoConsumer.as_asgi()),
 ]
