@@ -60,3 +60,38 @@ class CambiarModalidadChoferView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+        
+        
+class ActualizarUbicacionView(APIView):
+    permission_classes = [IsAuthenticated, EsChofer]
+
+    def post(self, request):
+        lat = request.data.get("latitud")
+        lng = request.data.get("longitud")
+
+        if lat is None or lng is None:
+            return Response(
+                {"status": "error", "message": "Faltan parámetros 'latitud' o 'longitud'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        chofer = request.user.chofer_datos
+        chofer.latitud = lat
+        chofer.longitud = lng
+        chofer.save()
+
+        return Response(
+            {"status": "ok", "message": "Ubicación actualizada correctamente."},
+            status=status.HTTP_200_OK,
+        )
+
+
+class PagarRolView(APIView):
+    permission_classes = [IsAuthenticated, EsChofer]
+
+    def post(self, request):
+        # Implementación de tu lógica de pago de rol
+        return Response(
+            {"status": "ok", "message": "Rol pagado correctamente."},
+            status=status.HTTP_200_OK,
+        )        
