@@ -26,7 +26,6 @@ INSTALLED_APPS = [
     'Taxis',
     'storages',
     'bcrypt',
-    "rest_framework",
     "rest_framework_simplejwt",
 ]
 REST_FRAMEWORK = {
