@@ -24,8 +24,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
-# Ajusta el import relativo segun tu profundidad real: desde api/v1/ hasta
-# Taxis/Taxis/models.py son dos niveles arriba.
+
 from ...models import PerfilUsuario, Vehiculo, Chofer
 
 

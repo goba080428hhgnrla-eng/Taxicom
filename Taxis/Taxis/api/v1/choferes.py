@@ -19,8 +19,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import Chofer
-from .permissions import EsChofer
+from Taxis.models import Chofer
+from Taxis.permissions import EsChofer
 
 
 class CambiarModalidadChoferView(APIView):
