@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from datetime import timedelta
 
 """
 Django settings for agoconecta / Taxicom project.
@@ -24,8 +25,27 @@ INSTALLED_APPS = [
     'rest_framework',
     'Taxis',
     'storages',
-    'bcrypt'
+    'bcrypt',
+    "rest_framework",
+    "rest_framework_simplejwt",
 ]
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": (
+        "taxis.authentication.PerfilUsuarioJWTAuthentication",
+    ),
+    "DEFAULT_PERMISSION_CLASSES": (
+        "rest_framework.permissions.IsAuthenticated",
+    ),
+}
+
+SIMPLE_JWT = {
+    "USER_ID_FIELD": "id_usuario",   # PK real de PerfilUsuario
+    "USER_ID_CLAIM": "user_id",
+    "ACCESS_TOKEN_LIFETIME": timedelta(hours=8),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=14),
+    "ROTATE_REFRESH_TOKENS": True,
+}
+
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',

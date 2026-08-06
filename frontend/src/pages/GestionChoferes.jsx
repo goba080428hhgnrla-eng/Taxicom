@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
+import { apiFetch } from '../api';
 
 export default function GestionChoferes() {
   const [pendientes, setPendientes] = useState([]);
   const [activos, setActivos] = useState([]);
 
   const cargarDatos = () => {
-    fetch('/api/web/gestion-choferes/')
+    apiFetch('/api/v1/admin/choferes/')
       .then((res) => res.json())
       .then((data) => {
         setPendientes(data.pendientes || []);
@@ -18,11 +19,15 @@ export default function GestionChoferes() {
   }, []);
 
   const handleAccion = async (chofer_id, accion) => {
-    await fetch('/api/web/gestion-choferes/', {
+    const res = await apiFetch('/api/v1/admin/choferes/gestionar/', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ chofer_id, accion }),
     });
+    const data = await res.json();
+    if (!res.ok) {
+      alert(data.message || 'No se pudo procesar la acción.');
+      return;
+    }
     cargarDatos();
   };
 
@@ -33,7 +38,6 @@ export default function GestionChoferes() {
         <p className="text-slate-500 text-sm mt-1">Valida nuevos conductores o revisa el estado de la flota activa.</p>
       </div>
 
-      {/* Solicitudes Pendientes */}
       <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="p-6 border-b border-slate-100 bg-amber-50/30 flex items-center justify-between">
           <div>
@@ -97,7 +101,6 @@ export default function GestionChoferes() {
         </div>
       </div>
 
-      {/* Choferes Activos */}
       <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="p-6 border-b border-slate-100">
           <h2 className="text-base font-bold text-slate-900">Choferes Activos / En Ruta</h2>

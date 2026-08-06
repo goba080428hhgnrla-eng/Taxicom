@@ -1,6 +1,7 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/Layout.jsx';
+import RutaProtegida from './components/RutaProtegida.jsx';
 import HomePublico from './pages/HomePublico.jsx';
 import Login from './pages/Login.jsx';
 import Dashboard from './pages/Dashboard.jsx';
@@ -13,9 +14,15 @@ export default function App() {
       <Routes>
         <Route path="/" element={<HomePublico />} />
         <Route path="/login" element={<Login />} />
-        
-        {/* Rutas administrativas */}
-        <Route path="/admin" element={<Layout />}>
+
+        <Route
+          path="/admin"
+          element={
+            <RutaProtegida>
+              <Layout />
+            </RutaProtegida>
+          }
+        >
           <Route index element={<Dashboard />} />
           <Route path="choferes" element={<GestionChoferes />} />
           <Route path="roles" element={<AsignarRoles />} />

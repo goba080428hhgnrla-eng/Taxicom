@@ -58,6 +58,14 @@ class PerfilUsuario(models.Model):
 
     def __str__(self):
         return f"{self.nombre or ''} {self.apellido or ''} ({self.rol.upper()})"
+    
+    @property
+    def is_authenticated(self):
+        return True
+
+    @property
+    def is_anonymous(self):
+        return False
 
 
 class Vehiculo(models.Model):

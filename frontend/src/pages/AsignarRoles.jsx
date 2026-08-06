@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { apiFetch } from '../api';
 
 export default function AsignarRoles() {
   const [grupo, setGrupo] = useState('');
@@ -10,7 +11,7 @@ export default function AsignarRoles() {
   const [asignaciones, setAsignaciones] = useState({});
 
   const cargarDatos = () => {
-    fetch('/api/web/roles/')
+    apiFetch('/api/v1/admin/roles/')
       .then((res) => res.json())
       .then((data) => {
         setGruposConfigurados(data.grupos_configurados || {});
@@ -31,10 +32,9 @@ export default function AsignarRoles() {
 
   const guardarGrupo = async (e) => {
     e.preventDefault();
-    await fetch('/api/web/roles/', {
+    await apiFetch('/api/v1/admin/roles/guardar-regla/', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ accion: 'guardar_regla', grupo, dias: diasSeleccionados }),
+      body: JSON.stringify({ grupo, dias: diasSeleccionados }),
     });
     setGrupo('');
     setDiasSeleccionados([]);
@@ -43,27 +43,24 @@ export default function AsignarRoles() {
 
   const eliminarGrupo = async (nombreGrupo) => {
     if (!confirm('¿Eliminar grupo? Los choferes de este grupo quedarán sin rol asignado.')) return;
-    await fetch('/api/web/roles/', {
+    await apiFetch('/api/v1/admin/roles/eliminar-grupo/', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ accion: 'eliminar_grupo', grupo: nombreGrupo }),
+      body: JSON.stringify({ grupo: nombreGrupo }),
     });
     cargarDatos();
   };
 
   const vincularChofer = async (chofer_id) => {
     const grupo_rol = asignaciones[chofer_id] ?? '';
-    await fetch('/api/web/roles/', {
+    await apiFetch('/api/v1/admin/roles/asignar-chofer/', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ accion: 'asignar_chofer', chofer_id, grupo_rol }),
+      body: JSON.stringify({ chofer_id, grupo_rol }),
     });
     cargarDatos();
   };
 
   return (
     <div className="space-y-8 font-sans antialiased max-w-7xl mx-auto p-6">
-      {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-6 border-b border-slate-200">
         <div>
           <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">Gestión Operativa de Roles</h1>
@@ -79,7 +76,6 @@ export default function AsignarRoles() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Formulario */}
         <div className="bg-white border border-slate-200 p-6 rounded-3xl shadow-sm h-fit">
           <h2 className="text-lg font-bold text-slate-900 mb-1">Definir Nuevo Grupo</h2>
           <p className="text-xs text-slate-500 mb-6">
@@ -132,9 +128,7 @@ export default function AsignarRoles() {
           </form>
         </div>
 
-        {/* Tablas */}
         <div className="lg:col-span-2 space-y-8">
-          {/* Calendario de Grupos */}
           <div className="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden">
             <div className="p-6 border-b border-slate-100">
               <h2 className="text-base font-bold text-slate-900">Grupos Registrados</h2>
@@ -187,7 +181,6 @@ export default function AsignarRoles() {
             </div>
           </div>
 
-          {/* Asignación a Personal */}
           <div className="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden">
             <div className="p-6 border-b border-slate-100">
               <h2 className="text-base font-bold text-slate-900">Asignación Manual de Personal</h2>

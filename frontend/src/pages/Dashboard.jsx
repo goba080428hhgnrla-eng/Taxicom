@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import L from 'leaflet';
+import { apiFetch } from '../api';
 
 const taxiIcon = L.icon({
   iconUrl: 'https://cdn-icons-png.flaticon.com/512/3448/3448339.png',
@@ -66,7 +67,7 @@ export default function Dashboard() {
       }).addTo(mapInstance.current);
     }
 
-    fetch('/api/web/choferes-activos/')
+    apiFetch('/api/v1/admin/choferes/mapa/')
       .then((res) => res.json())
       .then((data) => {
         setChoferes(data.choferes || []);
@@ -83,6 +84,11 @@ export default function Dashboard() {
         });
       });
 
+    // Nota: este WebSocket todavia NO manda el JWT. Django Channels no
+    // valida esta conexion contra ningun usuario -- cualquiera que sepa la
+    // URL puede escuchar el tracking en tiempo real. Cuando quieras, vemos
+    // como pasar el token en el query string o en el primer mensaje y
+    // validarlo en consumers.py.
     const wsScheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
     const socket = new WebSocket(`${wsScheme}://${window.location.host}/ws/tracking/`);
 
@@ -104,7 +110,6 @@ export default function Dashboard() {
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 p-6 max-w-7xl mx-auto font-sans antialiased">
-      {/* Sidebar - Lista de Vehículos */}
       <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 h-[650px] flex flex-col">
         <div className="pb-4 border-b border-slate-100 flex items-center justify-between">
           <h2 className="text-base font-bold text-slate-900 flex items-center space-x-2">
@@ -114,7 +119,7 @@ export default function Dashboard() {
             {choferes.length}
           </span>
         </div>
-        
+
         <div className="space-y-3 mt-4 overflow-y-auto flex-1 pr-1">
           {choferes.length > 0 ? (
             choferes.map((c) => (
@@ -148,7 +153,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Visor del Mapa */}
       <div className="lg:col-span-3 bg-white rounded-3xl shadow-sm border border-slate-200 relative h-[650px] overflow-hidden">
         <div ref={mapRef} className="w-full h-full z-0"></div>
       </div>

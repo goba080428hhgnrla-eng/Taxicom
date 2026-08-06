@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { guardarSesion, cerrarSesion } from '../api';
 
 export default function Login() {
-  const [formData, setFormData] = useState({ username: '', password: '' });
+  const [formData, setFormData] = useState({ correo_o_usuario: '', password: '' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
@@ -12,17 +13,28 @@ export default function Login() {
     setError('');
     setLoading(true);
     try {
-      const res = await fetch('/api/web/login/', {
+      const res = await fetch('/api/v1/auth/login/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData),
       });
       const data = await res.json();
-      if (res.ok && data.status === 'ok') {
-        navigate('/admin');
-      } else {
-        setError(data.message || 'Credenciales inválidas. Verifica tus datos.');
+
+      if (!res.ok) {
+        const mensaje =
+          data.non_field_errors?.[0] || data.detail || 'Credenciales inválidas. Verifica tus datos.';
+        setError(mensaje);
+        return;
       }
+
+      if (!data.usuario?.es_admin) {
+        cerrarSesion();
+        setError('Acceso denegado. No eres administrador.');
+        return;
+      }
+
+      guardarSesion(data);
+      navigate('/admin');
     } catch (err) {
       setError('Error de conexión con el servidor.');
     } finally {
@@ -62,8 +74,8 @@ export default function Login() {
               required
               className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 focus:bg-white text-slate-900 transition placeholder-slate-400"
               placeholder="nombre@ejemplo.com"
-              value={formData.username}
-              onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+              value={formData.correo_o_usuario}
+              onChange={(e) => setFormData({ ...formData, correo_o_usuario: e.target.value })}
             />
           </div>
 
