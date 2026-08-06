@@ -30,7 +30,7 @@ INSTALLED_APPS = [
 ]
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
-        "taxis.authentication.PerfilUsuarioJWTAuthentication",
+        "Taxis.authentication.PerfilUsuarioJWTAuthentication",
     ),
     "DEFAULT_PERMISSION_CLASSES": (
         "rest_framework.permissions.IsAuthenticated",
