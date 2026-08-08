@@ -1,18 +1,9 @@
 """
 Plantilla de migración: api_cambiar_modalidad_chofer → CambiarModalidadChoferView.
 
-ANTES (api_views.py):
-    - El request mandaba `usuario_id` en el body.
-    - Cualquiera que supiera un usuario_id podía cambiar el estado de
-      cualquier chofer, sin verificar que fuera ese chofer.
-
 AHORA:
-    - El chofer se identifica por el token JWT (request.user), no por un
-      campo del body.
+    - El chofer se identifica por el token JWT (request.user).
     - Un chofer solo puede cambiar SU PROPIO estado.
-    - Repite este patrón (permission_classes = [IsAuthenticated, EsChofer]
-      + usar request.user.chofer_datos en vez de un id del body) para migrar
-      actualizar_ubicacion_chofer, api_pagar_rol y api_solicitar_viaje_especial.
 """
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
@@ -20,8 +11,6 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
-
-from Taxis.permissions import EsChofer
 
 from Taxis.models import Chofer
 from Taxis.permissions import EsChofer
@@ -56,6 +45,17 @@ class CambiarModalidadChoferView(APIView):
         chofer.estado = nuevo_estado
         chofer.save()
 
+        # Si el chofer pasa a inactivo o apaga turno, notificar la desconexión a React
+        if nuevo_estado == 'inactivo':
+            channel_layer = get_channel_layer()
+            async_to_sync(channel_layer.group_send)(
+                "central_taxis_colectivos",
+                {
+                    "type": "broadcast_chofer_desconectado",
+                    "chofer_id": chofer.id
+                }
+            )
+
         return Response(
             {
                 "status": "ok",
@@ -64,8 +64,8 @@ class CambiarModalidadChoferView(APIView):
             },
             status=status.HTTP_200_OK,
         )
-        
-        
+
+
 class ActualizarUbicacionView(APIView):
     permission_classes = [IsAuthenticated, EsChofer]
 
@@ -84,21 +84,41 @@ class ActualizarUbicacionView(APIView):
         chofer.longitud = lng
         chofer.save()
 
-        # Retransmitir en tiempo real a React a través de WebSockets
+        # Obtener nombre de forma segura evitando AttributeError
+        first_name = getattr(request.user, 'first_name', None) or getattr(request.user, 'nombre', '')
+        last_name = getattr(request.user, 'last_name', None) or getattr(request.user, 'apellido', '')
+        nombre_completo = f"{first_name} {last_name}".strip() or f"Chofer #{chofer.id}"
+
+        # Obtener datos del vehículo si existe
+        info_vehiculo = f"{chofer.vehiculo.marca} {chofer.vehiculo.modelo}" if getattr(chofer, 'vehiculo', None) else "Taxi Colectivo"
+
+        # Retransmitir en tiempo real a React a través del Channel Layer
         channel_layer = get_channel_layer()
-        async_to_sync(channel_layer.group_send)(
-            "mapa_choferes",
-            {
-                "type": "posicion_actualizada",
-                "data": {
-                    "id": chofer.id,
-                    "nombre": f"{request.user.first_name} {request.user.last_name}",
+        
+        if chofer.estado == 'inactivo':
+            # Si el chofer está inactivo, notificar la eliminación del vehículo
+            async_to_sync(channel_layer.group_send)(
+                "central_taxis_colectivos",
+                {
+                    "type": "broadcast_chofer_desconectado",
+                    "chofer_id": chofer.id
+                }
+            )
+        else:
+            # Emitir actualización al mapa web
+            async_to_sync(channel_layer.group_send)(
+                "central_taxis_colectivos",
+                {
+                    "type": "broadcast_ubicacion",
+                    "chofer_id": chofer.id,
                     "latitud": float(lat),
                     "longitud": float(lng),
-                    "estado": chofer.estado,
-                },
-            },
-        )
+                    "nombre": nombre_completo,
+                    "vehiculo": info_vehiculo,
+                    "modalidad": getattr(chofer, 'modalidad', 'COLECTIVO'),
+                    "asientos_disponibles": getattr(chofer, 'asientos_disponibles', 4)
+                }
+            )
 
         return Response({"status": "ok"}, status=status.HTTP_200_OK)
 
@@ -107,8 +127,7 @@ class PagarRolView(APIView):
     permission_classes = [IsAuthenticated, EsChofer]
 
     def post(self, request):
-        # Implementación de tu lógica de pago de rol
         return Response(
             {"status": "ok", "message": "Rol pagado correctamente."},
             status=status.HTTP_200_OK,
-        )        
+        )

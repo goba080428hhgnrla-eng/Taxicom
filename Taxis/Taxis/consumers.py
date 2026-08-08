@@ -15,8 +15,9 @@ class TaxiColectivoConsumer(AsyncWebsocketConsumer):
         await self.accept()
 
     async def disconnect(self, close_code):
-        # Si la conexión era de un chofer conocido, avisar que finalizó turno
+        # Si la conexión era de un chofer conocido, marcarlo inactivo en DB y avisar al mapa
         if self.chofer_id:
+            await self.marcar_chofer_inactivo(self.chofer_id)
             await self.channel_layer.group_send(
                 self.room_group_name,
                 {
@@ -154,7 +155,15 @@ class TaxiColectivoConsumer(AsyncWebsocketConsumer):
             chofer.longitud = float(lng)
             chofer.save()
 
-            nombre_completo = f"{chofer.usuario.first_name} {chofer.usuario.last_name}".strip() if hasattr(chofer, 'usuario') else f"Chofer #{chofer.id}"
+            # Obtención segura de nombres para evitar AttributeError con PerfilUsuario
+            usuario = getattr(chofer, 'usuario', None)
+            if usuario:
+                first_name = getattr(usuario, 'first_name', None) or getattr(usuario, 'nombre', '')
+                last_name = getattr(usuario, 'last_name', None) or getattr(usuario, 'apellido', '')
+                nombre_completo = f"{first_name} {last_name}".strip() or f"Chofer #{chofer.id}"
+            else:
+                nombre_completo = f"Chofer #{chofer.id}"
+
             info_vehiculo = f"{chofer.vehiculo.marca} {chofer.vehiculo.modelo}" if getattr(chofer, 'vehiculo', None) else "Taxi"
 
             return {
