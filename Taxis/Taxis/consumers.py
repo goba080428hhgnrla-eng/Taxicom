@@ -5,8 +5,8 @@ from .models import Chofer, Viaje
 
 class TaxiColectivoConsumer(AsyncWebsocketConsumer):
     async def connect(self):
-        # Canal unificado para dashboard web, pasajeros y unidades
         self.room_group_name = "central_taxis_colectivos"
+        self.chofer_id = None
         
         await self.channel_layer.group_add(
             self.room_group_name,
@@ -15,6 +15,16 @@ class TaxiColectivoConsumer(AsyncWebsocketConsumer):
         await self.accept()
 
     async def disconnect(self, close_code):
+        # Si la conexión era de un chofer conocido, avisar que finalizó turno
+        if self.chofer_id:
+            await self.channel_layer.group_send(
+                self.room_group_name,
+                {
+                    "type": "broadcast_chofer_desconectado",
+                    "chofer_id": self.chofer_id
+                }
+            )
+
         await self.channel_layer.group_discard(
             self.room_group_name,
             self.channel_name
@@ -24,11 +34,12 @@ class TaxiColectivoConsumer(AsyncWebsocketConsumer):
         data = json.loads(text_data)
         action = data.get("action")
 
-        # 1. ACTUALIZACIÓN DE UBICACIÓN (Especial o Colectivo)
+        # 1. ACTUALIZACIÓN DE UBICACIÓN
         if action == "actualizar_ubicacion_chofer":
             chofer_id = data.get("chofer_id")
-            lat = data.get("latitud")
-            lng = data.get("longitud")
+            self.chofer_id = chofer_id
+            lat = data.get("latitud") or data.get("lat")
+            lng = data.get("longitud") or data.get("lng")
             
             chofer_info = await self.guardar_posicion_chofer(chofer_id, lat, lng)
             
@@ -42,12 +53,24 @@ class TaxiColectivoConsumer(AsyncWebsocketConsumer):
                         "longitud": lng,
                         "nombre": chofer_info["nombre"],
                         "vehiculo": chofer_info["vehiculo"],
-                        "modalidad": chofer_info["modalidad"],  # "ESPECIAL" o "COLECTIVO"
+                        "modalidad": chofer_info["modalidad"],
                         "asientos_disponibles": chofer_info["asientos_disponibles"]
                     }
                 )
 
-        # 2. SOLICITUD DE TAXI COLECTIVO (Por asientos)
+        # 2. FINALIZAR TURNO EXPLÍCITO
+        elif action == "finalizar_turno":
+            chofer_id = data.get("chofer_id")
+            await self.marcar_chofer_inactivo(chofer_id)
+            await self.channel_layer.group_send(
+                self.room_group_name,
+                {
+                    "type": "broadcast_chofer_desconectado",
+                    "chofer_id": chofer_id
+                }
+            )
+
+        # 3. SOLICITUD DE TAXI COLECTIVO
         elif action == "solicitar_parada_colectivo":
             cliente_id = data.get("cliente_id")
             origen_lat = data.get("origen_lat")
@@ -86,43 +109,6 @@ class TaxiColectivoConsumer(AsyncWebsocketConsumer):
                     "message": "No hay colectivos disponibles en este tramo."
                 }))
 
-        # 3. SOLICITUD DE TAXI ESPECIAL (Viaje Privado)
-        elif action == "solicitar_viaje_especial":
-            cliente_id = data.get("cliente_id")
-            origen_lat = data.get("origen_lat")
-            origen_lng = data.get("origen_lng")
-
-            chofer_especial = await self.buscar_chofer_especial_cercano(origen_lat, origen_lng)
-
-            if chofer_especial:
-                await self.send(text_data=json.dumps({
-                    "status": "asignado",
-                    "message": f"Taxi Especial asignado: {chofer_especial['nombre']}",
-                    "chofer_id": chofer_especial['id']
-                }))
-            else:
-                await self.send(text_data=json.dumps({
-                    "status": "sin_unidades",
-                    "message": "No hay taxis especiales disponibles cerca."
-                }))
-
-        # 4. CAMBIO DE PASAJEROS (Solo aplica a Colectivos)
-        elif action == "cambio_flujo_pasajeros":
-            chofer_id = data.get("chofer_id")
-            tipo_movimiento = data.get("tipo")  # "sube" o "baja"
-            asientos = int(data.get("asientos", 1))
-            
-            nuevos_asientos = await self.actualizar_inventario_asientos(chofer_id, tipo_movimiento, asientos)
-            
-            await self.channel_layer.group_send(
-                self.room_group_name,
-                {
-                    "type": "broadcast_asientos_actualizados",
-                    "chofer_id": chofer_id,
-                    "asientos_disponibles": nuevos_asientos
-                }
-            )
-
     # --- HANDLERS ASÍNCRONOS DE BROADCAST ---
 
     async def broadcast_ubicacion(self, event):
@@ -133,8 +119,14 @@ class TaxiColectivoConsumer(AsyncWebsocketConsumer):
             "lng": event["longitud"],
             "nombre": event.get("nombre", "Chofer en Ruta"),
             "vehiculo": event.get("vehiculo", "Vehículo Activo"),
-            "modalidad": event.get("modalidad", "COLECTIVO"), # "ESPECIAL" o "COLECTIVO"
+            "modalidad": event.get("modalidad", "COLECTIVO"),
             "asientos_disponibles": event["asientos_disponibles"]
+        }))
+
+    async def broadcast_chofer_desconectado(self, event):
+        await self.send(text_data=json.dumps({
+            "event": "chofer_desconectado",
+            "chofer_id": event["chofer_id"]
         }))
 
     async def notificar_chofer_parada(self, event):
@@ -149,21 +141,12 @@ class TaxiColectivoConsumer(AsyncWebsocketConsumer):
             "asientos": event["asientos"]
         }))
 
-    async def broadcast_asientos_actualizados(self, event):
-        await self.send(text_data=json.dumps({
-            "event": "cupo_modificado",
-            "chofer_id": event["chofer_id"],
-            "asientos_disponibles": event["asientos_disponibles"]
-        }))
-
     # --- CONSULTAS A BASE DE DATOS ---
 
     @database_sync_to_async
     def guardar_posicion_chofer(self, chofer_id, lat, lng):
         try:
-            # Usar select_related según la relación con el usuario en tu modelo
             chofer = Chofer.objects.select_related('usuario', 'vehiculo').get(id=chofer_id)
-            
             if chofer.estado in ['pendiente', 'inactivo']:
                 return None
 
@@ -173,89 +156,22 @@ class TaxiColectivoConsumer(AsyncWebsocketConsumer):
 
             nombre_completo = f"{chofer.usuario.first_name} {chofer.usuario.last_name}".strip() if hasattr(chofer, 'usuario') else f"Chofer #{chofer.id}"
             info_vehiculo = f"{chofer.vehiculo.marca} {chofer.vehiculo.modelo}" if getattr(chofer, 'vehiculo', None) else "Taxi"
-            
-            # Obtener modalidad (si no existe el campo en el modelo, por defecto se asume 'COLECTIVO')
-            modalidad = getattr(chofer, 'modalidad', 'COLECTIVO')
 
             return {
                 'id': chofer.id,
                 'nombre': nombre_completo,
                 'vehiculo': info_vehiculo,
-                'modalidad': modalidad,
+                'modalidad': getattr(chofer, 'modalidad', 'COLECTIVO'),
                 'asientos_disponibles': getattr(chofer, 'asientos_disponibles', 4)
             }
         except Chofer.DoesNotExist:
             return None
 
     @database_sync_to_async
-    def buscar_y_asignar_colectivo_inteligente(self, o_lat, o_lng, d_lat, d_lng, asientos_requeridos):
-        # Filtra únicamente los taxis en modalidad COLECTIVO
-        choferes = Chofer.objects.filter(
-            estado__in=['activo', 'en_ruta'],
-            modalidad='COLECTIVO',
-            asientos_disponibles__gte=asientos_requeridos,
-            latitud__isnull=False,
-            longitud__isnull=False
-        ).select_related('usuario')
-
-        if not choferes.exists():
-            return None
-
-        mejor_opcion = None
-        menor_distancia = float('inf')
-
-        for chofer in choferes:
-            distancia = ((chofer.latitud - float(o_lat))**2 + (chofer.longitud - float(o_lng))**2)**0.5
-            if distancia < menor_distancia:
-                menor_distancia = distancia
-                mejor_opcion = chofer
-
-        if mejor_opcion:
-            return {
-                'id': mejor_opcion.id,
-                'nombre': mejor_opcion.usuario.first_name if hasattr(mejor_opcion, 'usuario') else f"Chofer #{mejor_opcion.id}"
-            }
-        return None
-
-    @database_sync_to_async
-    def buscar_chofer_especial_cercano(self, o_lat, o_lng):
-        # Filtra únicamente taxis en modalidad ESPECIAL y que estén libres
-        choferes = Chofer.objects.filter(
-            estado='activo',
-            modalidad='ESPECIAL',
-            latitud__isnull=False,
-            longitud__isnull=False
-        ).select_related('usuario')
-
-        if not choferes.exists():
-            return None
-
-        mejor_opcion = None
-        menor_distancia = float('inf')
-
-        for chofer in choferes:
-            distancia = ((chofer.latitud - float(o_lat))**2 + (chofer.longitud - float(o_lng))**2)**0.5
-            if distancia < menor_distancia:
-                menor_distancia = distancia
-                mejor_opcion = chofer
-
-        if mejor_opcion:
-            return {
-                'id': mejor_opcion.id,
-                'nombre': mejor_opcion.usuario.first_name if hasattr(mejor_opcion, 'usuario') else f"Chofer #{mejor_opcion.id}"
-            }
-        return None
-
-    @database_sync_to_async
-    def actualizar_inventario_asientos(self, chofer_id, tipo, cantidad):
+    def marcar_chofer_inactivo(self, chofer_id):
         try:
             chofer = Chofer.objects.get(id=chofer_id)
-            if tipo == "sube":
-                chofer.asientos_disponibles = max(0, chofer.asientos_disponibles - cantidad)
-            elif tipo == "baja":
-                chofer.asientos_disponibles = min(4, chofer.asientos_disponibles + cantidad)
-            
+            chofer.estado = 'inactivo'
             chofer.save()
-            return chofer.asientos_disponibles
         except Chofer.DoesNotExist:
-            return 4
+            pass
