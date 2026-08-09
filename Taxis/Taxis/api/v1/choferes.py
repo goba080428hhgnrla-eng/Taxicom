@@ -1,12 +1,13 @@
 
+from django.utils import timezone
+from rest_framework import serializers, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 
-from Taxis.models import Chofer
+from Taxis.models import Chofer, PagoRol
 from Taxis.permissions import EsChofer
 from Taxis.authentication import PerfilUsuarioJWTAuthentication
 
@@ -125,3 +126,46 @@ class ActualizarUbicacionView(APIView):
         )
 
         return Response({"status": "ok"}, status=status.HTTP_200_OK)
+
+
+class PagarRolSerializer(serializers.Serializer):
+    monto = serializers.FloatField(min_value=0.01)
+
+
+class PagarRolView(APIView):
+    """
+    Antes: api_pagar_rol. El chofer paga su propio rol -- ya no manda
+    chofer_id, se identifica por el token igual que las otras dos vistas.
+    """
+    authentication_classes = [PerfilUsuarioJWTAuthentication]
+    permission_classes = [IsAuthenticated, EsChofer]
+
+    def post(self, request):
+        serializer = PagarRolSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        chofer = getattr(request.user, "chofer_datos", None)
+        if not chofer:
+            return Response(
+                {"status": "error", "message": "El usuario no tiene perfil de chofer."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        hoy = timezone.now().date()
+        if PagoRol.objects.filter(chofer=chofer, fecha_pago__date=hoy, estado="pagado").exists():
+            return Response(
+                {"status": "error", "message": "El chofer ya pago el rol hoy."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        resultado = chofer.pagar_rol(serializer.validated_data["monto"])
+
+        if resultado:
+            return Response(
+                {"status": "ok", "message": "Pago de rol realizado y chofer activado."},
+                status=status.HTTP_200_OK,
+            )
+        return Response(
+            {"status": "error", "message": "El chofer ya pago el rol hoy."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
