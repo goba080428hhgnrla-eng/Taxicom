@@ -1,9 +1,7 @@
-from .models import Notificacion
+
 
 def enviar_notificacion(usuario, tipo, mensaje):
-    """
-    Crea un registro en la tabla Notificacion para un usuario.
-    """
+    from .models import Notificacion  
     return Notificacion.objects.create(
         usuario=usuario,
         tipo=tipo,
