@@ -16,9 +16,12 @@ from channels.layers import get_channel_layer
 from Taxis.models import Chofer
 from Taxis.permissions import EsChofer
 
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
 
+@method_decorator(csrf_exempt, name='dispatch')
 class CambiarModalidadChoferView(APIView):
-    # Fuerza unicamente autenticacion JWT para ignorar la autenticacion por sesion
+    # Desactiva la autenticación por sesión/cookies y usa únicamente JWT
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
@@ -33,14 +36,14 @@ class CambiarModalidadChoferView(APIView):
         chofer = getattr(request.user, "chofer_datos", None)
         if not chofer:
             return Response(
-                {"status": "error", "message": "El usuario no es un chofer."},
+                {"status": "error", "message": "El usuario no tiene perfil de chofer."},
                 status=status.HTTP_403_FORBIDDEN,
             )
 
         chofer.estado = nuevo_estado
         chofer.save()
 
-        # Si finaliza el turno, notificar la desconexion a React mediante Channels
+        # Si el turno se apaga, notificar a React vía WebSocket para eliminar el icono del mapa
         if nuevo_estado == 'inactivo':
             channel_layer = get_channel_layer()
             async_to_sync(channel_layer.group_send)(
@@ -57,7 +60,8 @@ class CambiarModalidadChoferView(APIView):
         )
 
 
-class ActualizarUbicacionView(APIView):
+@method_decorator(csrf_exempt, name='dispatch')
+class ActualizarUbicacionChoferView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
@@ -74,7 +78,7 @@ class ActualizarUbicacionView(APIView):
         chofer = getattr(request.user, "chofer_datos", None)
         if not chofer:
             return Response(
-                {"status": "error", "message": "El usuario no es un chofer."},
+                {"status": "error", "message": "El usuario no tiene perfil de chofer."},
                 status=status.HTTP_403_FORBIDDEN,
             )
 
@@ -83,7 +87,6 @@ class ActualizarUbicacionView(APIView):
         chofer.save()
 
         return Response({"status": "ok"}, status=status.HTTP_200_OK)
-
 class PagarRolView(APIView):
     permission_classes = [IsAuthenticated, EsChofer]
 
