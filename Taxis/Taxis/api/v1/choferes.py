@@ -5,6 +5,8 @@ AHORA:
     - El chofer se identifica por el token JWT (request.user).
     - Un chofer solo puede cambiar SU PROPIO estado.
 """
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import csrf_exempt
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
