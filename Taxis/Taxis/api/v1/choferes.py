@@ -57,7 +57,7 @@ class CambiarModalidadChoferView(APIView):
         )
 
 
-class ActualizarUbicacionChoferView(APIView):
+class ActualizarUbicacionView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
