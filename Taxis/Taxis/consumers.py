@@ -7,7 +7,7 @@ class TaxiColectivoConsumer(AsyncWebsocketConsumer):
     async def connect(self):
         self.room_group_name = "central_taxis_colectivos"
         self.chofer_id = None
-        
+
         await self.channel_layer.group_add(
             self.room_group_name,
             self.channel_name
@@ -15,7 +15,6 @@ class TaxiColectivoConsumer(AsyncWebsocketConsumer):
         await self.accept()
 
     async def disconnect(self, close_code):
-        # Si la conexión era de un chofer conocido, marcarlo inactivo en DB y avisar al mapa
         if self.chofer_id:
             await self.marcar_chofer_inactivo(self.chofer_id)
             await self.channel_layer.group_send(
@@ -35,15 +34,14 @@ class TaxiColectivoConsumer(AsyncWebsocketConsumer):
         data = json.loads(text_data)
         action = data.get("action")
 
-        # 1. ACTUALIZACIÓN DE UBICACIÓN
         if action == "actualizar_ubicacion_chofer":
             chofer_id = data.get("chofer_id")
             self.chofer_id = chofer_id
             lat = data.get("latitud") or data.get("lat")
             lng = data.get("longitud") or data.get("lng")
-            
+
             chofer_info = await self.guardar_posicion_chofer(chofer_id, lat, lng)
-            
+
             if chofer_info:
                 await self.channel_layer.group_send(
                     self.room_group_name,
@@ -59,7 +57,6 @@ class TaxiColectivoConsumer(AsyncWebsocketConsumer):
                     }
                 )
 
-        # 2. FINALIZAR TURNO EXPLÍCITO
         elif action == "finalizar_turno":
             chofer_id = data.get("chofer_id")
             await self.marcar_chofer_inactivo(chofer_id)
@@ -71,7 +68,6 @@ class TaxiColectivoConsumer(AsyncWebsocketConsumer):
                 }
             )
 
-        # 3. SOLICITUD DE TAXI COLECTIVO
         elif action == "solicitar_parada_colectivo":
             cliente_id = data.get("cliente_id")
             origen_lat = data.get("origen_lat")
@@ -111,6 +107,11 @@ class TaxiColectivoConsumer(AsyncWebsocketConsumer):
                 }))
 
     # --- HANDLERS ASÍNCRONOS DE BROADCAST ---
+    # Todo mensaje que llegue por group_send con un "type" que NO tenga un
+    # metodo aqui abajo con el MISMO nombre tumba la conexion WebSocket
+    # entera (ValueError: No handler for message type ...). Si agregas un
+    # "type" nuevo en alguna vista o en receive(), su handler tiene que
+    # existir aqui.
 
     async def broadcast_ubicacion(self, event):
         await self.send(text_data=json.dumps({
@@ -147,7 +148,10 @@ class TaxiColectivoConsumer(AsyncWebsocketConsumer):
     @database_sync_to_async
     def guardar_posicion_chofer(self, chofer_id, lat, lng):
         try:
-            chofer = Chofer.objects.select_related('usuario', 'vehiculo').get(id=chofer_id)
+            # Corregido: el modelo Chofer usa 'perfil', no 'usuario'.
+            # select_related('usuario', ...) tronaba con FieldError antes
+            # de llegar siquiera a guardar la posicion.
+            chofer = Chofer.objects.select_related('perfil', 'vehiculo').get(id=chofer_id)
             if chofer.estado in ['pendiente', 'inactivo']:
                 return None
 
@@ -155,23 +159,17 @@ class TaxiColectivoConsumer(AsyncWebsocketConsumer):
             chofer.longitud = float(lng)
             chofer.save()
 
-            # Obtención segura de nombres para evitar AttributeError con PerfilUsuario
-            usuario = getattr(chofer, 'usuario', None)
-            if usuario:
-                first_name = getattr(usuario, 'first_name', None) or getattr(usuario, 'nombre', '')
-                last_name = getattr(usuario, 'last_name', None) or getattr(usuario, 'apellido', '')
-                nombre_completo = f"{first_name} {last_name}".strip() or f"Chofer #{chofer.id}"
-            else:
-                nombre_completo = f"Chofer #{chofer.id}"
+            nombre_completo = f"{chofer.perfil.nombre or ''} {chofer.perfil.apellido or ''}".strip() \
+                or f"Chofer #{chofer.id}"
 
-            info_vehiculo = f"{chofer.vehiculo.marca} {chofer.vehiculo.modelo}" if getattr(chofer, 'vehiculo', None) else "Taxi"
+            info_vehiculo = f"{chofer.vehiculo.marca} {chofer.vehiculo.modelo}" if chofer.vehiculo else "Taxi"
 
             return {
                 'id': chofer.id,
                 'nombre': nombre_completo,
                 'vehiculo': info_vehiculo,
-                'modalidad': getattr(chofer, 'modalidad', 'COLECTIVO'),
-                'asientos_disponibles': getattr(chofer, 'asientos_disponibles', 4)
+                'modalidad': chofer.get_estado_display(),
+                'asientos_disponibles': chofer.asientos_disponibles
             }
         except Chofer.DoesNotExist:
             return None

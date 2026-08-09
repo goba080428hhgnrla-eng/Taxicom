@@ -1,4 +1,14 @@
+"""
+Ubicacion: Taxis/Taxis/api/v1/choferes.py
 
+Ultima correccion: los broadcasts ahora reutilizan el handler
+"broadcast_ubicacion" que YA existe en consumers.py -- ya no se inventa un
+"broadcast_chofer_conectado" que no tiene handler (eso era lo que tumbaba
+el WebSocket). Los nombres de campo (latitud/longitud, no lat/lng) tienen
+que coincidir EXACTO con lo que consumers.py lee via event["latitud"], etc,
+o vuelve a tronar con KeyError en vez de ValueError, pero igual tumba la
+conexion.
+"""
 from django.utils import timezone
 from rest_framework import serializers, status
 from rest_framework.views import APIView
@@ -14,16 +24,17 @@ from Taxis.authentication import PerfilUsuarioJWTAuthentication
 GRUPO_COLECTIVOS = "central_taxis_colectivos"
 
 
-def _chofer_a_dict(chofer: Chofer) -> dict:
+def _payload_ubicacion(chofer: Chofer) -> dict:
+    """Mismo shape que espera el handler broadcast_ubicacion en consumers.py."""
     return {
+        "type": "broadcast_ubicacion",
         "chofer_id": chofer.id,
+        "latitud": chofer.latitud,
+        "longitud": chofer.longitud,
         "nombre": f"{chofer.perfil.nombre or ''} {chofer.perfil.apellido or ''}".strip(),
         "vehiculo": f"{chofer.vehiculo.marca} {chofer.vehiculo.modelo}" if chofer.vehiculo else "Vehículo",
-        "sketchfab_id": chofer.vehiculo.sketchfab_model_id if chofer.vehiculo else "",
+        "modalidad": chofer.get_estado_display(),
         "asientos_disponibles": chofer.asientos_disponibles,
-        "lat": float(chofer.latitud) if chofer.latitud else 0.0,
-        "lng": float(chofer.longitud) if chofer.longitud else 0.0,
-        "estado": chofer.get_estado_display(),
     }
 
 
@@ -59,16 +70,13 @@ class CambiarModalidadChoferView(APIView):
         channel_layer = get_channel_layer()
 
         if nuevo_estado in ("activo", "en_ruta"):
-            # Iniciar turno -- avisa a React para que agregue el icono.
+            # Iniciar turno -- reutiliza broadcast_ubicacion (ya existe el
+            # handler); React lo pinta como si fuera una actualizacion mas.
             async_to_sync(channel_layer.group_send)(
                 GRUPO_COLECTIVOS,
-                {
-                    "type": "broadcast_chofer_conectado",
-                    **_chofer_a_dict(chofer),
-                },
+                _payload_ubicacion(chofer),
             )
         elif nuevo_estado == "inactivo":
-            # Finalizar turno -- avisa a React para que quite el icono.
             async_to_sync(channel_layer.group_send)(
                 GRUPO_COLECTIVOS,
                 {
@@ -114,15 +122,10 @@ class ActualizarUbicacionView(APIView):
         chofer.longitud = float(lng)
         chofer.save()
 
-        # Sin esto, React nunca se entera de la nueva posicion -- solo
-        # quedaba guardada en la base de datos.
         channel_layer = get_channel_layer()
         async_to_sync(channel_layer.group_send)(
             GRUPO_COLECTIVOS,
-            {
-                "type": "broadcast_ubicacion_actualizada",
-                **_chofer_a_dict(chofer),
-            },
+            _payload_ubicacion(chofer),
         )
 
         return Response({"status": "ok"}, status=status.HTTP_200_OK)
@@ -133,10 +136,6 @@ class PagarRolSerializer(serializers.Serializer):
 
 
 class PagarRolView(APIView):
-    """
-    Antes: api_pagar_rol. El chofer paga su propio rol -- ya no manda
-    chofer_id, se identifica por el token igual que las otras dos vistas.
-    """
     authentication_classes = [PerfilUsuarioJWTAuthentication]
     permission_classes = [IsAuthenticated, EsChofer]
 
