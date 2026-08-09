@@ -16,6 +16,7 @@ from Taxis.models import Chofer
 from Taxis.permissions import EsChofer
 
 
+@method_decorator(csrf_exempt, name='dispatch')
 class CambiarModalidadChoferView(APIView):
     permission_classes = [IsAuthenticated, EsChofer]
 
@@ -45,7 +46,7 @@ class CambiarModalidadChoferView(APIView):
         chofer.estado = nuevo_estado
         chofer.save()
 
-        # Si el chofer pasa a inactivo o apaga turno, notificar la desconexión a React
+        # Si pasa a inactivo, notificar la desconexión a la central web (React)
         if nuevo_estado == 'inactivo':
             channel_layer = get_channel_layer()
             async_to_sync(channel_layer.group_send)(
