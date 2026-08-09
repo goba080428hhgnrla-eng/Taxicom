@@ -18,10 +18,9 @@ from Taxis.permissions import EsChofer
 
 
 class CambiarModalidadChoferView(APIView):
-    # AL DEFINIR ESTO AQUÍ, IGNORA 'SessionAuthentication' DE LA CONFIGURACIÓN GLOBAL
-    # Únicamente valida el token Bearer JWT enviado desde Android
+    # Fuerza unicamente autenticacion JWT para ignorar la autenticacion por sesion
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated, EsChofer]
+    permission_classes = [IsAuthenticated]
 
     def post(self, request):
         nuevo_estado = request.data.get("estado")
@@ -31,17 +30,17 @@ class CambiarModalidadChoferView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if not hasattr(request.user, "chofer_datos"):
+        chofer = getattr(request.user, "chofer_datos", None)
+        if not chofer:
             return Response(
-                {"status": "error", "message": "Este usuario no tiene perfil de chofer."},
+                {"status": "error", "message": "El usuario no es un chofer."},
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        chofer = request.user.chofer_datos
         chofer.estado = nuevo_estado
         chofer.save()
 
-        # Si el chofer apaga el turno, emitir la desconexión a React vía WebSocket
+        # Si finaliza el turno, notificar la desconexion a React mediante Channels
         if nuevo_estado == 'inactivo':
             channel_layer = get_channel_layer()
             async_to_sync(channel_layer.group_send)(
@@ -53,19 +52,14 @@ class CambiarModalidadChoferView(APIView):
             )
 
         return Response(
-            {
-                "status": "ok",
-                "nuevo_estado": chofer.estado,
-                "message": f"Estado actualizado a: {chofer.estado}",
-            },
+            {"status": "ok", "nuevo_estado": chofer.estado},
             status=status.HTTP_200_OK,
         )
 
 
-class ActualizarUbicacionView(APIView):
-    # AL DEFINIR ESTO AQUÍ, IGNORA 'SessionAuthentication' DE LA CONFIGURACIÓN GLOBAL
+class ActualizarUbicacionChoferView(APIView):
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated, EsChofer]
+    permission_classes = [IsAuthenticated]
 
     def post(self, request):
         lat = request.data.get("lat") or request.data.get("latitud")
@@ -73,23 +67,22 @@ class ActualizarUbicacionView(APIView):
 
         if not lat or not lng:
             return Response(
-                {"status": "error", "message": "Coordenadas incompletas."},
+                {"status": "error", "message": "Faltan coordenadas."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if not hasattr(request.user, "chofer_datos"):
+        chofer = getattr(request.user, "chofer_datos", None)
+        if not chofer:
             return Response(
-                {"status": "error", "message": "Usuario sin perfil de chofer."},
+                {"status": "error", "message": "El usuario no es un chofer."},
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        chofer = request.user.chofer_datos
         chofer.latitud = float(lat)
         chofer.longitud = float(lng)
         chofer.save()
 
         return Response({"status": "ok"}, status=status.HTTP_200_OK)
-
 
 class PagarRolView(APIView):
     permission_classes = [IsAuthenticated, EsChofer]
