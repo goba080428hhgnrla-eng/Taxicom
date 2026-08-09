@@ -62,7 +62,7 @@ class CambiarModalidadChoferView(APIView):
         )
 
 
-class ActualizarUbicacionChoferView(APIView):
+class ActualizarUbicacionView(APIView):
     # AL DEFINIR ESTO AQUÍ, IGNORA 'SessionAuthentication' DE LA CONFIGURACIÓN GLOBAL
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated, EsChofer]
