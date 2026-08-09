@@ -41,13 +41,17 @@ urlpatterns = [
     path("api/v1/auth/registro-chofer/", RegistroChoferDesdeCeroView.as_view(), name="api_registro_chofer_v1"),
     path("api/v1/auth/refresh/", TokenRefreshView.as_view(), name="api_token_refresh"),
 
+    # NOTA: les faltaba el prefijo 'api/v1/' -- estaban registradas como
+    # '/choferes/...' en vez de '/api/v1/choferes/...', por eso el cliente
+    # (que si le pega a la URL con el prefijo) nunca encontraba coincidencia
+    # y caia en el comodin de React de hasta abajo.
     path(
-        'choferes/cambiar-modalidad/',
+        'api/v1/choferes/cambiar-modalidad/',
         csrf_exempt(CambiarModalidadChoferView.as_view()),
         name='cambiar-modalidad'
     ),
     path(
-        'choferes/ubicacion/',
+        'api/v1/choferes/ubicacion/',
         csrf_exempt(ActualizarUbicacionView.as_view()),
         name='actualizar-ubicacion'
     ),
