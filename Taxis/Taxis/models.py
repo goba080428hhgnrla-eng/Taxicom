@@ -1,7 +1,7 @@
 from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.contrib.auth.hashers import make_password, check_password
-
+from .utils import enviar_notificacion
 
 
 class PerfilUsuario(models.Model):
@@ -100,28 +100,62 @@ class Chofer(models.Model):
     longitud = models.FloatField(default=0.0, db_index=True)
     ultima_actualizacion = models.DateTimeField(auto_now=True)
 
+
     def pagar_rol(self, monto):
         from django.utils import timezone
-        from .models import PagoRol  
-      
-        hoy = timezone.now().date()
-        # Verificar si ya pago hoy en la tabla PagoRol
-        if PagoRol.objects.filter(chofer=self, fecha_pago__date=hoy, estado='pagado').exists():
-            return False  # Ya pagó hoy
+        from .models import PagoRol
 
-        # si no ha pagado creamos el registro en PagoRol
+        hoy = timezone.now().date()
+
+        # verificar si ya pago
+        if PagoRol.objects.filter(chofer=self, fecha_pago__date=hoy, estado='pagado').exists():
+            return False  # Ya pago hoy, no puede pagar otra vez
+
+        # Calcular los diasque debe 
+        ultimo_pago = PagoRol.objects.filter(chofer=self, estado='pagado').order_by('-fecha_pago').first()
+        
+        if ultimo_pago:
+            #dias trancurridos desde el ultimo pago
+            dias_deuda = (hoy - ultimo_pago.fecha_pago.date()).days
+        else:
+            # Si nunca ha pagado asumimos que debo por lo menos el de hoy
+            dias_deuda = 1
+
+        
+        if dias_deuda <= 0: # por si la deusa es 0, no se hace nada
+            return False
+
+        # Calcular el costo total de la deuda
+        #====dejo 150 por defecto
+
+        costo_por_dia = 150.00
+        total_adeudado = dias_deuda * costo_por_dia
+
+        # Verificar que el monto que envio cubra la deuda total
+        if monto < total_adeudado:
+            return False  # no paga lo suficiente nose registra el pago 
+
+
         PagoRol.objects.create(
             chofer=self,
             monto=monto,
             estado='pagado'
         )
 
-        #si estaba inactivo, lo activamos
+        # Si estaba inactivo, lo activamos
         if self.estado == 'inactivo':
             self.estado = 'activo'
             self.save()
+
+        # Enviar notificacion de exito
+        enviar_notificacion(
+            usuario=self.perfil,
+            tipo='pago_rol',
+            mensaje=f'Has pagado tu rol por ${monto}. Deuda saldada.'
+        )
         
         return True
+    
     
     class Meta:
         verbose_name = 'Chofer'
@@ -221,6 +255,7 @@ class Pago(models.Model):
     def __str__(self):
         return f"Pago Viaje #{self.viaje.id} - {self.monto}"
 
+
     #modelos faltantes
 
 class Calificacion(models.Model):
@@ -299,3 +334,4 @@ class PagoRol(models.Model):
     
     def __str__(self):
         return f"Pago de rol - {self.chofer} - ${self.monto}"
+    

@@ -6,27 +6,46 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         from django.utils import timezone
+        from Taxis.models import Chofer, RolDia, Base, PagoRol
+
         hoy = timezone.now().date()
         
-        #mapeo de dias en español a numeros 0=Lunes, 6=Domingo
+        # Mapeo de dias
         dias_semana = ['Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes', 'Sabado', 'Domingo']
         dia_hoy = dias_semana[hoy.weekday()]
         
-        # buscar grupos los grupos que trabajan hoy
+        # Buscar los grupos que trabajan hoy
         roles_hoy = RolDia.objects.filter(dia_semana=dia_hoy).values_list('grupo', flat=True)
-
         if not roles_hoy:
             self.stdout.write("Hoy no hay grupos programados.")
             return
 
-        #asignar Base a los choferes de ese grupo
-        #supongamos que queremos asignarlos a la primera base disponible
         base_por_defecto = Base.objects.first()
-        
         if not base_por_defecto:
             self.stdout.write("Error: No hay una Base registrada para asignar.")
             return
 
-        choferes_actualizados = Chofer.objects.filter(grupo_rol__in=roles_hoy).update(base=base_por_defecto)
+        choferes_grupo = Chofer.objects.filter(grupo_rol__in=roles_hoy)
+        contador_activos = 0
+        contador_inactivos = 0
 
-        self.stdout.write(f"Se asignó la base a {choferes_actualizados} choferes del grupo {roles_hoy}.")
+        for chofer in choferes_grupo:
+            # verificar si pago hoy
+            pago_hoy = PagoRol.objects.filter(chofer=chofer, fecha_pago__date=hoy, estado='pagado').exists()
+            
+            if pago_hoy:
+                # Si pago se le asigna la base y se activa
+                
+                chofer.base = base_por_defecto
+                chofer.estado = 'activo'
+                chofer.save()
+                contador_activos += 1
+            else:
+                # Si no pagó se le quita la base y se pone inactivo
+                
+                chofer.base = None
+                chofer.estado = 'inactivo'
+                chofer.save()
+                contador_inactivos += 1
+
+        self.stdout.write(f"Asignados: {contador_activos} activos, {contador_inactivos} inactivos (morosos).")
