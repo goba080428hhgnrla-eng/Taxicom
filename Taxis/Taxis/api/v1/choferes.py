@@ -61,7 +61,7 @@ class CambiarModalidadChoferView(APIView):
 
 
 @method_decorator(csrf_exempt, name='dispatch')
-class ActualizarUbicacionChoferView(APIView):
+class ActualizarUbicacionView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
