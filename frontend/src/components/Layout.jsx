@@ -29,6 +29,9 @@ export default function Layout() {
               <Link to="/admin/roles" className="px-3 py-2 text-sm font-medium text-slate-600 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition">
                 Roles y Turnos
               </Link>
+              <Link to="/admin/rutas" className="px-3 py-2 text-sm font-medium text-slate-600 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition">
+                Rutas
+              </Link>
             </nav>
           </div>
           <div className="flex items-center space-x-4">
