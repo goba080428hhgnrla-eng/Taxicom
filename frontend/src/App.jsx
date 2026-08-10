@@ -7,6 +7,7 @@ import Login from './pages/Login.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import GestionChoferes from './pages/GestionChoferes.jsx';
 import AsignarRoles from './pages/AsignarRoles.jsx';
+import GestionRutas from './pages/GestionRutas.jsx';
 
 export default function App() {
   return (
@@ -26,6 +27,7 @@ export default function App() {
           <Route index element={<Dashboard />} />
           <Route path="choferes" element={<GestionChoferes />} />
           <Route path="roles" element={<AsignarRoles />} />
+          <Route path="rutas" element={<GestionRutas />} />
         </Route>
 
         <Route path="/dashboard" element={<Navigate to="/admin" replace />} />

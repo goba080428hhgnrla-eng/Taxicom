@@ -28,15 +28,35 @@ from Taxis.api.v1.roles import (
     EliminarGrupoRolView,
     AsignarChoferGrupoView,
 )
+from Taxis.api.v1.rutas import (
+    RutasListCreateView,
+    RutaDetailView,
+    AgregarChoferRutaView,
+    QuitarChoferRutaView,
+    SolicitarColectivoView,
+    RutasClienteView,
+    MisPasajerosActivosView,
+    MarcarSubidaPasajeroView,
+    MarcarBajadaPasajeroView,
+    ResetearColectivoView,
+)
 from django.views.decorators.csrf import csrf_exempt
 
 urlpatterns = [
+    # ==========================================================
+    # API v1 (DRF + JWT) -- lo nuevo, esto es lo que deben usar
+    # React y la app Android de aqui en adelante.
+    # ==========================================================
     path("api/v1/auth/login/", LoginView.as_view(), name="api_login_v1"),
     path("api/v1/auth/registro/", RegistroClienteView.as_view(), name="api_registro_v1"),
     path("api/v1/auth/promover-chofer/", PromocionarAChoferView.as_view(), name="api_promover_chofer_v1"),
     path("api/v1/auth/registro-chofer/", RegistroChoferDesdeCeroView.as_view(), name="api_registro_chofer_v1"),
     path("api/v1/auth/refresh/", TokenRefreshView.as_view(), name="api_token_refresh"),
 
+    # NOTA: les faltaba el prefijo 'api/v1/' -- estaban registradas como
+    # '/choferes/...' en vez de '/api/v1/choferes/...', por eso el cliente
+    # (que si le pega a la URL con el prefijo) nunca encontraba coincidencia
+    # y caia en el comodin de React de hasta abajo.
     path(
         'api/v1/choferes/cambiar-modalidad/',
         csrf_exempt(CambiarModalidadChoferView.as_view()),
@@ -62,6 +82,17 @@ urlpatterns = [
     path("api/v1/admin/roles/guardar-regla/", GuardarReglaRolView.as_view(), name="api_guardar_regla_v1"),
     path("api/v1/admin/roles/eliminar-grupo/", EliminarGrupoRolView.as_view(), name="api_eliminar_grupo_v1"),
     path("api/v1/admin/roles/asignar-chofer/", AsignarChoferGrupoView.as_view(), name="api_asignar_chofer_v1"),
+
+    path("api/v1/admin/rutas/", RutasListCreateView.as_view(), name="api_rutas_v1"),
+    path("api/v1/admin/rutas/<int:ruta_id>/", RutaDetailView.as_view(), name="api_ruta_detalle_v1"),
+    path("api/v1/admin/rutas/<int:ruta_id>/agregar-chofer/", AgregarChoferRutaView.as_view(), name="api_agregar_chofer_ruta_v1"),
+    path("api/v1/admin/rutas/<int:ruta_id>/quitar-chofer/", QuitarChoferRutaView.as_view(), name="api_quitar_chofer_ruta_v1"),
+    path("api/v1/viajes/colectivo/solicitar/", SolicitarColectivoView.as_view(), name="api_solicitar_colectivo_v1"),
+    path("api/v1/viajes/colectivo/rutas/", RutasClienteView.as_view(), name="api_rutas_cliente_v1"),
+    path("api/v1/choferes/colectivo/pasajeros/", MisPasajerosActivosView.as_view(), name="api_pasajeros_activos_v1"),
+    path("api/v1/choferes/colectivo/subio/<int:viaje_id>/", MarcarSubidaPasajeroView.as_view(), name="api_subio_pasajero_v1"),
+    path("api/v1/choferes/colectivo/bajo/<int:viaje_id>/", MarcarBajadaPasajeroView.as_view(), name="api_bajo_pasajero_v1"),
+    path("api/v1/choferes/colectivo/reset-asientos/", ResetearColectivoView.as_view(), name="api_reset_colectivo_v1"),
 
     # ==========================================================
     # Comodin de React -- SIEMPRE al final. Cualquier ruta nueva
