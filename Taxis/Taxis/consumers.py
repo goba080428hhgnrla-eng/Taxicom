@@ -1,17 +1,36 @@
 import json
+from urllib.parse import parse_qs
+
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
-from .models import Chofer, Viaje
+from rest_framework_simplejwt.tokens import AccessToken
+from rest_framework_simplejwt.exceptions import TokenError
+
+from .models import Chofer, PerfilUsuario, Viaje
+
 
 class TaxiColectivoConsumer(AsyncWebsocketConsumer):
     async def connect(self):
         self.room_group_name = "central_taxis_colectivos"
         self.chofer_id = None
+        self.grupo_personal = None
 
         await self.channel_layer.group_add(
             self.room_group_name,
             self.channel_name
         )
+
+        # Identifica al chofer por el JWT en la URL (?token=...), en vez de
+        # confiar en un chofer_id que el cliente mande despues en un
+        # mensaje -- eso permitia (por bug de origen) mandar cualquier id y
+        # ademas no alcanzaba para armar un grupo personal antes de que el
+        # chofer mandara su primera ubicacion.
+        chofer_info = await self._resolver_chofer_desde_token()
+        if chofer_info:
+            self.chofer_id = chofer_info["id"]
+            self.grupo_personal = f"chofer_{self.chofer_id}"
+            await self.channel_layer.group_add(self.grupo_personal, self.channel_name)
+
         await self.accept()
 
     async def disconnect(self, close_code):
@@ -24,6 +43,8 @@ class TaxiColectivoConsumer(AsyncWebsocketConsumer):
                     "chofer_id": self.chofer_id
                 }
             )
+            if self.grupo_personal:
+                await self.channel_layer.group_discard(self.grupo_personal, self.channel_name)
 
         await self.channel_layer.group_discard(
             self.room_group_name,
@@ -34,9 +55,15 @@ class TaxiColectivoConsumer(AsyncWebsocketConsumer):
         data = json.loads(text_data)
         action = data.get("action")
 
+        # NOTA: la actualizacion de ubicacion por este canal (action=
+        # "actualizar_ubicacion_chofer") ya no es necesaria -- TrackingService
+        # ahora manda la ubicacion por REST (ActualizarUbicacionView), que
+        # ya identifica al chofer por su token de forma segura. Si tu app
+        # ya no manda mas esta action, puedes borrar este bloque completo
+        # mas adelante; lo dejo por si todavia hay una version vieja de la
+        # app en uso.
         if action == "actualizar_ubicacion_chofer":
             chofer_id = data.get("chofer_id")
-            self.chofer_id = chofer_id
             lat = data.get("latitud") or data.get("lat")
             lng = data.get("longitud") or data.get("lng")
 
@@ -68,50 +95,7 @@ class TaxiColectivoConsumer(AsyncWebsocketConsumer):
                 }
             )
 
-        elif action == "solicitar_parada_colectivo":
-            cliente_id = data.get("cliente_id")
-            origen_lat = data.get("origen_lat")
-            origen_lng = data.get("origen_lng")
-            destino_lat = data.get("destino_lat")
-            destino_lng = data.get("destino_lng")
-            asientos_pedidos = int(data.get("asientos", 1))
-
-            chofer_asignado = await self.buscar_y_asignar_colectivo_inteligente(
-                origen_lat, origen_lng, destino_lat, destino_lng, asientos_pedidos
-            )
-
-            if chofer_asignado:
-                await self.channel_layer.group_send(
-                    self.room_group_name,
-                    {
-                        "type": "notificar_chofer_parada",
-                        "chofer_id": chofer_asignado['id'],
-                        "cliente_id": cliente_id,
-                        "recoger_lat": origen_lat,
-                        "recoger_lng": origen_lng,
-                        "bajar_lat": destino_lat,
-                        "bajar_lng": destino_lng,
-                        "asientos": asientos_pedidos,
-                        "tipo_servicio": "COLECTIVO"
-                    }
-                )
-                await self.send(text_data=json.dumps({
-                    "status": "asignado",
-                    "message": f"El colectivo de {chofer_asignado['nombre']} ha recibido tu parada.",
-                    "chofer_id": chofer_asignado['id']
-                }))
-            else:
-                await self.send(text_data=json.dumps({
-                    "status": "sin_cupo",
-                    "message": "No hay colectivos disponibles en este tramo."
-                }))
-
     # --- HANDLERS ASÍNCRONOS DE BROADCAST ---
-    # Todo mensaje que llegue por group_send con un "type" que NO tenga un
-    # metodo aqui abajo con el MISMO nombre tumba la conexion WebSocket
-    # entera (ValueError: No handler for message type ...). Si agregas un
-    # "type" nuevo en alguna vista o en receive(), su handler tiene que
-    # existir aqui.
 
     async def broadcast_ubicacion(self, event):
         await self.send(text_data=json.dumps({
@@ -131,26 +115,48 @@ class TaxiColectivoConsumer(AsyncWebsocketConsumer):
             "chofer_id": event["chofer_id"]
         }))
 
-    async def notificar_chofer_parada(self, event):
+    async def notificar_cliente_colectivo(self, event):
+        """
+        Este SOLO le llega al chofer correcto -- se manda con
+        group_send(f"chofer_{chofer.id}", ...) desde SolicitarColectivoView,
+        nunca al grupo compartido central_taxis_colectivos.
+        """
         await self.send(text_data=json.dumps({
-            "event": "nueva_parada_solicitada",
-            "chofer_id": event["chofer_id"],
-            "cliente_id": event["cliente_id"],
-            "recoger_lat": event["recoger_lat"],
-            "recoger_lng": event["recoger_lng"],
-            "bajar_lat": event["bajar_lat"],
-            "bajar_lng": event["bajar_lng"],
-            "asientos": event["asientos"]
+            "event": "nuevo_cliente_colectivo",
+            "viaje_id": event["viaje_id"],
+            "cliente_nombre": event["cliente_nombre"],
+            "lat": event["lat"],
+            "lng": event["lng"],
+            "asientos": event["asientos"],
+            "requiere_cajuela": event["requiere_cajuela"],
         }))
+
+    # --- IDENTIFICACION POR TOKEN ---
+
+    @database_sync_to_async
+    def _resolver_chofer_desde_token(self):
+        try:
+            query_string = self.scope.get("query_string", b"").decode()
+            token_str = parse_qs(query_string).get("token", [None])[0]
+            if not token_str:
+                return None
+
+            access = AccessToken(token_str)
+            user_id = access["user_id"]
+
+            usuario = PerfilUsuario.objects.get(id_usuario=user_id)
+            if not hasattr(usuario, "chofer_datos"):
+                return None
+
+            return {"id": usuario.chofer_datos.id}
+        except (TokenError, PerfilUsuario.DoesNotExist, KeyError):
+            return None
 
     # --- CONSULTAS A BASE DE DATOS ---
 
     @database_sync_to_async
     def guardar_posicion_chofer(self, chofer_id, lat, lng):
         try:
-            # Corregido: el modelo Chofer usa 'perfil', no 'usuario'.
-            # select_related('usuario', ...) tronaba con FieldError antes
-            # de llegar siquiera a guardar la posicion.
             chofer = Chofer.objects.select_related('perfil', 'vehiculo').get(id=chofer_id)
             if chofer.estado in ['pendiente', 'inactivo']:
                 return None
