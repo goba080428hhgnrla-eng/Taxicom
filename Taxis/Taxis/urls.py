@@ -35,10 +35,6 @@ from Taxis.api.v1.rutas import (
     QuitarChoferRutaView,
     SolicitarColectivoView,
     RutasClienteView,
-    MisPasajerosActivosView,
-    MarcarSubidaPasajeroView,
-    MarcarBajadaPasajeroView,
-    ResetearColectivoView,
 )
 from django.views.decorators.csrf import csrf_exempt
 
@@ -89,10 +85,6 @@ urlpatterns = [
     path("api/v1/admin/rutas/<int:ruta_id>/quitar-chofer/", QuitarChoferRutaView.as_view(), name="api_quitar_chofer_ruta_v1"),
     path("api/v1/viajes/colectivo/solicitar/", SolicitarColectivoView.as_view(), name="api_solicitar_colectivo_v1"),
     path("api/v1/viajes/colectivo/rutas/", RutasClienteView.as_view(), name="api_rutas_cliente_v1"),
-    path("api/v1/choferes/colectivo/pasajeros/", MisPasajerosActivosView.as_view(), name="api_pasajeros_activos_v1"),
-    path("api/v1/choferes/colectivo/subio/<int:viaje_id>/", MarcarSubidaPasajeroView.as_view(), name="api_subio_pasajero_v1"),
-    path("api/v1/choferes/colectivo/bajo/<int:viaje_id>/", MarcarBajadaPasajeroView.as_view(), name="api_bajo_pasajero_v1"),
-    path("api/v1/choferes/colectivo/reset-asientos/", ResetearColectivoView.as_view(), name="api_reset_colectivo_v1"),
 
     # ==========================================================
     # Comodin de React -- SIEMPRE al final. Cualquier ruta nueva

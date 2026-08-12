@@ -1,3 +1,10 @@
+"""
+Ubicacion: Taxis/Taxis/api/v1/rutas.py
+
+Varios choferes pueden trabajar la misma ruta al mismo tiempo. Cuando un
+cliente pide el colectivo, se elige UN chofer (el mas cercano, con
+asientos y cajuela disponibles) y SOLO a el le llega la alerta.
+"""
 import math
 
 from django.db import transaction
@@ -191,7 +198,9 @@ class SolicitarColectivoView(APIView):
         chofer_elegido = None
         for candidato in candidatos:
             # UPDATE atomico: solo resta los asientos si TODAVIA hay
-            # suficientes en este instante.
+            # suficientes en este instante -- si otra solicitud se los
+            # gano justo antes, esto no actualiza nada (0 filas) y pasamos
+            # al siguiente candidato mas cercano.
             filas_actualizadas = Chofer.objects.filter(
                 id=candidato.id, asientos_disponibles__gte=datos["asientos"]
             ).update(asientos_disponibles=F("asientos_disponibles") - datos["asientos"])
@@ -269,147 +278,3 @@ class RutasClienteView(APIView):
                 "choferes_disponibles": disponibles,
             })
         return Response({"rutas": data}, status=status.HTTP_200_OK)
-
-
-# =====================================================================
-# VISTAS NUEVAS: INTERVENCIÓN MANUAL DEL CHOFER
-# =====================================================================
-
-class MisPasajerosActivosView(APIView):
-    """
-    GET: Devuelve la lista de solicitudes/pasajeros activos asignados
-    al chofer autenticado, junto con su conteo actual de asientos.
-    """
-    authentication_classes = [PerfilUsuarioJWTAuthentication]
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request):
-        usuario = request.user
-        if not hasattr(usuario, "chofer_datos"):
-            return Response({"status": "error", "message": "El usuario no es chofer."}, status=status.HTTP_403_FORBIDDEN)
-
-        chofer = usuario.chofer_datos
-        viajes = Viaje.objects.filter(chofer=chofer, estado__in=["solicitado", "aceptado", "en_curso"]).order_by("-fecha_creacion")
-        
-        data = [
-            {
-                "viaje_id": v.id,
-                "cliente_nombre": f"{v.cliente.nombre or ''} {v.cliente.apellido or ''}".strip(),
-                "asientos": v.asientos_solicitados,
-                "requiere_cajuela": v.requiere_cajuela,
-                "lat": v.origen_lat,
-                "lng": v.origen_lng,
-                "estado": v.estado,
-                "hora": v.fecha_creacion.strftime("%H:%M"),
-            }
-            for v in viajes
-        ]
-        return Response(
-            {
-                "asientos_disponibles": chofer.asientos_disponibles,
-                "total_capacidad": chofer.vehiculo.total_asientos if chofer.vehiculo else 4,
-                "pasajeros": data,
-            },
-            status=status.HTTP_200_OK,
-        )
-
-
-class MarcarSubidaPasajeroView(APIView):
-    """
-    POST /api/v1/choferes/colectivo/subio/<viaje_id>/
-    El chofer presiona un botón para confirmar que el cliente ya subió.
-    Cambia el estado del viaje a 'en_curso'.
-    """
-    authentication_classes = [PerfilUsuarioJWTAuthentication]
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request, viaje_id):
-        try:
-            viaje = Viaje.objects.get(id=viaje_id)
-        except Viaje.DoesNotExist:
-            return Response({"status": "error", "message": "Viaje no encontrado."}, status=status.HTTP_404_NOT_FOUND)
-
-        viaje.estado = "en_curso"
-        viaje.save()
-        return Response({"status": "ok", "message": "Pasajero abordado."}, status=status.HTTP_200_OK)
-
-
-class MarcarBajadaPasajeroView(APIView):
-    """
-    POST /api/v1/choferes/colectivo/bajo/<viaje_id>/
-    El chofer indica manualmente que el cliente bajó.
-    Cambia el estado a 'terminado' y libera exactamente la cantidad
-    de asientos que ese pasajero/grupo ocupaba.
-    """
-    authentication_classes = [PerfilUsuarioJWTAuthentication]
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request, viaje_id):
-        try:
-            viaje = Viaje.objects.get(id=viaje_id)
-        except Viaje.DoesNotExist:
-            return Response({"status": "error", "message": "Viaje no encontrado."}, status=status.HTTP_404_NOT_FOUND)
-
-        if viaje.estado in ["terminado", "cancelado"]:
-            return Response({"status": "error", "message": "Este pasajero ya había descendido."}, status=status.HTTP_400_BAD_REQUEST)
-
-        with transaction.atomic():
-            viaje.estado = "terminado"
-            viaje.save()
-            
-            chofer = viaje.chofer
-            if chofer:
-                capacidad_maxima = chofer.vehiculo.total_asientos if chofer.vehiculo else 4
-                
-                # Devolución de asientos
-                Chofer.objects.filter(id=chofer.id).update(
-                    asientos_disponibles=F("asientos_disponibles") + viaje.asientos_solicitados
-                )
-                
-                # Tope de seguridad para no sobrepasar el total del vehículo
-                chofer.refresh_from_db()
-                if chofer.asientos_disponibles > capacidad_maxima:
-                    chofer.asientos_disponibles = capacidad_maxima
-                    chofer.save()
-
-        return Response(
-            {
-                "status": "ok",
-                "message": "Pasajero bajó del colectivo.",
-                "asientos_disponibles": chofer.asientos_disponibles if chofer else 0,
-            },
-            status=status.HTTP_200_OK,
-        )
-
-
-class ResetearColectivoView(APIView):
-    """
-    POST /api/v1/choferes/colectivo/reset-asientos/
-    Restablece manualmente la capacidad máxima del vehículo al instante.
-    Útil si el colectivo se vacía en terminal/base.
-    """
-    authentication_classes = [PerfilUsuarioJWTAuthentication]
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request):
-        usuario = request.user
-        if not hasattr(usuario, "chofer_datos"):
-            return Response({"status": "error", "message": "El usuario no es chofer."}, status=status.HTTP_403_FORBIDDEN)
-
-        chofer = usuario.chofer_datos
-        max_asientos = chofer.vehiculo.total_asientos if chofer.vehiculo else 4
-        
-        chofer.asientos_disponibles = max_asientos
-        chofer.save()
-
-        # Cierra todas las solicitudes que estuvieran abiertas
-        Viaje.objects.filter(chofer=chofer, estado__in=["solicitado", "aceptado", "en_curso"]).update(estado="terminado")
-
-        return Response(
-            {
-                "status": "ok",
-                "message": f"Colectivo reiniciado a {max_asientos} asientos libres.",
-                "asientos_disponibles": chofer.asientos_disponibles,
-            },
-            status=status.HTTP_200_OK,
-        )
