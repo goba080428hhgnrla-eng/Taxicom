@@ -39,96 +39,193 @@ def _payload_ubicacion(chofer: Chofer) -> dict:
 
 
 class CambiarModalidadChoferView(APIView):
-    authentication_classes = [PerfilUsuarioJWTAuthentication]
-    permission_classes = [IsAuthenticated, EsChofer]
+
+    authentication_classes = [
+        PerfilUsuarioJWTAuthentication
+    ]
+
+    permission_classes = [
+        IsAuthenticated,
+        EsChofer
+    ]
 
     def post(self, request):
+
         nuevo_estado = request.data.get("estado")
+
         if not nuevo_estado:
+
             return Response(
-                {"status": "error", "message": "Falta el parámetro 'estado'."},
-                status=status.HTTP_400_BAD_REQUEST,
+                {
+                    "status": "error",
+                    "message": "Falta el parámetro 'estado'."
+                },
+                status=status.HTTP_400_BAD_REQUEST
             )
 
-        chofer = getattr(request.user, "chofer_datos", None)
+        chofer = getattr(
+            request.user,
+            "chofer_datos",
+            None
+        )
+
         if not chofer:
+
             return Response(
-                {"status": "error", "message": "El usuario no tiene perfil de chofer."},
-                status=status.HTTP_403_FORBIDDEN,
+                {
+                    "status": "error",
+                    "message": (
+                        "El usuario no tiene perfil de chofer."
+                    )
+                },
+                status=status.HTTP_403_FORBIDDEN
             )
 
-        estados_validos = dict(Chofer.ESTADOS)
+        estados_validos = dict(
+            Chofer.ESTADOS
+        )
+
         if nuevo_estado not in estados_validos:
+
             return Response(
-                {"status": "error", "message": "Estado inválido."},
-                status=status.HTTP_400_BAD_REQUEST,
+                {
+                    "status": "error",
+                    "message": "Estado inválido.",
+                    "estados_validos": list(
+                        estados_validos.keys()
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST
             )
 
         chofer.estado = nuevo_estado
-        chofer.save()
+        chofer.save(
+            update_fields=["estado"]
+        )
 
         channel_layer = get_channel_layer()
 
-        if nuevo_estado in ("activo", "en_ruta"):
-            # Iniciar turno -- reutiliza broadcast_ubicacion (ya existe el
-            # handler); React lo pinta como si fuera una actualizacion mas.
-            async_to_sync(channel_layer.group_send)(
+        if nuevo_estado in (
+            "activo",
+            "en_ruta"
+        ):
+
+            async_to_sync(
+                channel_layer.group_send
+            )(
                 GRUPO_COLECTIVOS,
-                _payload_ubicacion(chofer),
+                _payload_ubicacion(chofer)
             )
+
         elif nuevo_estado == "inactivo":
-            async_to_sync(channel_layer.group_send)(
+
+            async_to_sync(
+                channel_layer.group_send
+            )(
                 GRUPO_COLECTIVOS,
                 {
-                    "type": "broadcast_chofer_desconectado",
-                    "chofer_id": chofer.id,
-                },
+                    "type":
+                        "broadcast_chofer_desconectado",
+
+                    "chofer_id":
+                        chofer.id,
+                }
             )
 
         return Response(
-            {"status": "ok", "nuevo_estado": chofer.estado},
-            status=status.HTTP_200_OK,
+            {
+                "status": "ok",
+                "nuevo_estado": chofer.estado,
+            },
+            status=status.HTTP_200_OK
         )
+
+
+class ActualizarUbicacionSerializer(
+    serializers.Serializer
+):
+
+    lat = serializers.FloatField()
+
+    lng = serializers.FloatField()
 
 
 class ActualizarUbicacionView(APIView):
-    authentication_classes = [PerfilUsuarioJWTAuthentication]
-    permission_classes = [IsAuthenticated, EsChofer]
+
+    authentication_classes = [
+        PerfilUsuarioJWTAuthentication
+    ]
+
+    permission_classes = [
+        IsAuthenticated,
+        EsChofer
+    ]
 
     def post(self, request):
-        lat = request.data.get("lat") or request.data.get("latitud")
-        lng = request.data.get("lng") or request.data.get("longitud")
 
-        if lat is None or lng is None:
-            return Response(
-                {"status": "error", "message": "Faltan coordenadas."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        chofer = getattr(request.user, "chofer_datos", None)
-        if not chofer:
-            return Response(
-                {"status": "error", "message": "El usuario no tiene perfil de chofer."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        if chofer.estado in ["pendiente", "inactivo"]:
-            return Response(
-                {"status": "error", "message": "Chofer no autorizado o inactivo."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        chofer.latitud = float(lat)
-        chofer.longitud = float(lng)
-        chofer.save()
-
-        channel_layer = get_channel_layer()
-        async_to_sync(channel_layer.group_send)(
-            GRUPO_COLECTIVOS,
-            _payload_ubicacion(chofer),
+        serializer = ActualizarUbicacionSerializer(
+            data=request.data
         )
 
-        return Response({"status": "ok"}, status=status.HTTP_200_OK)
+        serializer.is_valid(
+            raise_exception=True
+        )
+
+        chofer = getattr(
+            request.user,
+            "chofer_datos",
+            None
+        )
+
+        if not chofer:
+
+            return Response(
+                {
+                    "status": "error",
+                    "message": (
+                        "El usuario autenticado "
+                        "no tiene perfil de chofer."
+                    )
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        lat = serializer.validated_data["lat"]
+        lng = serializer.validated_data["lng"]
+
+        chofer.latitud = lat
+        chofer.longitud = lng
+
+        # Si tu modelo tiene este campo
+        if hasattr(chofer, "ultima_actualizacion"):
+            chofer.ultima_actualizacion = timezone.now()
+
+            chofer.save(
+                update_fields=[
+                    "latitud",
+                    "longitud",
+                    "ultima_actualizacion"
+                ]
+            )
+
+        else:
+
+            chofer.save(
+                update_fields=[
+                    "latitud",
+                    "longitud"
+                ]
+            )
+
+        return Response(
+            {
+                "status": "ok",
+                "message": "Ubicación actualizada.",
+                "lat": lat,
+                "lng": lng,
+            },
+            status=status.HTTP_200_OK
+        )
 
 
 class PagarRolSerializer(serializers.Serializer):

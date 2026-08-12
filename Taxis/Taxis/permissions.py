@@ -13,8 +13,26 @@ class EsCliente(BasePermission):
 
 
 class EsChofer(BasePermission):
-    def has_permission(self, request, view):
-        return bool(request.user and request.user.es_chofer)
+
+    message = "El usuario debe ser un chofer."
+
+    def has_permission(
+        self,
+        request,
+        view
+    ):
+
+        usuario = request.user
+
+        if not usuario:
+            return False
+
+        if not usuario.is_authenticated:
+            return False
+
+        return bool(
+            getattr(usuario, "es_chofer", False)
+        )
 
 
 class EsAdmin(BasePermission):
