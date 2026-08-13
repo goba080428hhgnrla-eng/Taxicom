@@ -28,11 +28,11 @@ INSTALLED_APPS = [
     'bcrypt',
     "rest_framework_simplejwt",
 ]
+
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "Taxis.authentication.PerfilUsuarioJWTAuthentication",
     ),
-
     "DEFAULT_PERMISSION_CLASSES": (
         "rest_framework.permissions.IsAuthenticated",
     ),
@@ -40,31 +40,16 @@ REST_FRAMEWORK = {
 
 
 SIMPLE_JWT = {
-
     "USER_ID_FIELD": "id_usuario",
-
     "USER_ID_CLAIM": "user_id",
 
-    # Access token
     "ACCESS_TOKEN_LIFETIME": timedelta(hours=8),
-
-    # Refresh token
     "REFRESH_TOKEN_LIFETIME": timedelta(days=14),
 
-    # Renovación
     "ROTATE_REFRESH_TOKENS": True,
-
     "BLACKLIST_AFTER_ROTATION": False,
 
-    # Formato
     "AUTH_HEADER_TYPES": ("Bearer",),
-
-    # Errores
-    "AUTH_TOKEN_CLASSES": (
-        "rest_framework_simplejwt.tokens.AccessToken",
-    ),
-
-    "TOKEN_TYPE_CLAIM": "token_type",
 }
 
 

@@ -52,14 +52,10 @@ def _usuario_a_dict(usuario: PerfilUsuario) -> dict:
 
 
 def _emitir_tokens(usuario: PerfilUsuario) -> dict:
-    refresh = RefreshToken()
-
-    refresh[api_settings.USER_ID_CLAIM] = str(usuario.id_usuario)
-
-    access = refresh.access_token
+    refresh = RefreshToken.for_user(usuario)
 
     return {
-        "access": str(access),
+        "access": str(refresh.access_token),
         "refresh": str(refresh),
     }
 
@@ -81,25 +77,24 @@ class LoginSerializer(serializers.Serializer):
     password = serializers.CharField(write_only=True)
 
     def validate(self, attrs):
-        identificador = attrs["correo_o_usuario"]
+        identificador = attrs["correo_o_usuario"].strip()
+        password = attrs["password"]
 
         try:
             usuario = PerfilUsuario.objects.get(
-                Q(username=identificador) |
-                Q(email=identificador)
+                Q(username=identificador) | Q(email=identificador)
             )
         except PerfilUsuario.DoesNotExist:
-            raise serializers.ValidationError(
-                "El usuario no existe."
-            )
+            raise serializers.ValidationError({
+                "correo_o_usuario": "El usuario no existe."
+            })
 
-        if not usuario.check_password(attrs["password"]):
-            raise serializers.ValidationError(
-                "Contrasena incorrecta."
-            )
+        if not usuario.check_password(password):
+            raise serializers.ValidationError({
+                "password": "Contraseña incorrecta."
+            })
 
         attrs["usuario"] = usuario
-
         return attrs
 
 
@@ -113,13 +108,9 @@ class LoginView(APIView):
         usuario = serializer.validated_data["usuario"]
 
         data = _emitir_tokens(usuario)
-
         data["usuario"] = _usuario_a_dict(usuario)
 
-        return Response(
-            data,
-            status=status.HTTP_200_OK
-        )
+        return Response(data, status=status.HTTP_200_OK)
 
 
 # ---------------------------------------------------------------------------
