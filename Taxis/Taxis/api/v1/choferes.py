@@ -45,20 +45,25 @@ class CambiarModalidadChoferView(APIView):
     ]
 
     permission_classes = [
-        IsAuthenticated,
         EsChofer
     ]
 
-    def post(self, request):
+    def post(
+        self,
+        request
+    ):
 
-        nuevo_estado = request.data.get("estado")
+        nuevo_estado = request.data.get(
+            "estado"
+        )
 
         if not nuevo_estado:
 
             return Response(
                 {
                     "status": "error",
-                    "message": "Falta el parámetro 'estado'."
+                    "message":
+                        "Falta el parámetro 'estado'."
                 },
                 status=status.HTTP_400_BAD_REQUEST
             )
@@ -74,9 +79,8 @@ class CambiarModalidadChoferView(APIView):
             return Response(
                 {
                     "status": "error",
-                    "message": (
+                    "message":
                         "El usuario no tiene perfil de chofer."
-                    )
                 },
                 status=status.HTTP_403_FORBIDDEN
             )
@@ -90,56 +94,125 @@ class CambiarModalidadChoferView(APIView):
             return Response(
                 {
                     "status": "error",
-                    "message": "Estado inválido.",
-                    "estados_validos": list(
-                        estados_validos.keys()
-                    )
+                    "message":
+                        "Estado inválido.",
+                    "estados_validos":
+                        list(
+                            estados_validos.keys()
+                        )
                 },
                 status=status.HTTP_400_BAD_REQUEST
             )
 
         chofer.estado = nuevo_estado
+
         chofer.save(
-            update_fields=["estado"]
+            update_fields=[
+                "estado"
+            ]
         )
 
-        channel_layer = get_channel_layer()
+        # =====================================================
+        # SI EL CHOFER ESTÁ ACTIVO
+        # =====================================================
 
         if nuevo_estado in (
             "activo",
             "en_ruta"
         ):
 
-            async_to_sync(
-                channel_layer.group_send
-            )(
-                GRUPO_COLECTIVOS,
-                _payload_ubicacion(chofer)
-            )
+            try:
+
+                channel_layer = (
+                    get_channel_layer()
+                )
+
+                async_to_sync(
+                    channel_layer.group_send
+                )(
+                    GRUPO_COLECTIVOS,
+                    {
+                        "type":
+                            "broadcast_ubicacion",
+
+                        "chofer_id":
+                            chofer.id,
+
+                        "latitud":
+                            chofer.latitud,
+
+                        "longitud":
+                            chofer.longitud,
+
+                        "nombre":
+                            getattr(
+                                chofer.usuario,
+                                "nombre",
+                                "Chofer"
+                            ),
+
+                        "vehiculo":
+                            "Vehículo Activo",
+
+                        "modalidad":
+                            nuevo_estado,
+
+                        "asientos_disponibles":
+                            getattr(
+                                chofer,
+                                "asientos_disponibles",
+                                0
+                            )
+                    }
+                )
+
+            except Exception as e:
+
+                print(
+                    "Error enviando "
+                    f"broadcast: {e}"
+                )
+
+        # =====================================================
+        # SI SE DESACTIVA
+        # =====================================================
 
         elif nuevo_estado == "inactivo":
 
-            async_to_sync(
-                channel_layer.group_send
-            )(
-                GRUPO_COLECTIVOS,
-                {
-                    "type":
-                        "broadcast_chofer_desconectado",
+            try:
 
-                    "chofer_id":
-                        chofer.id,
-                }
-            )
+                channel_layer = (
+                    get_channel_layer()
+                )
+
+                async_to_sync(
+                    channel_layer.group_send
+                )(
+                    GRUPO_COLECTIVOS,
+                    {
+                        "type":
+                            "broadcast_chofer_desconectado",
+
+                        "chofer_id":
+                            chofer.id
+                    }
+                )
+
+            except Exception as e:
+
+                print(
+                    "Error enviando "
+                    f"desconexión: {e}"
+                )
 
         return Response(
             {
                 "status": "ok",
-                "nuevo_estado": chofer.estado,
+                "nuevo_estado":
+                    chofer.estado
             },
             status=status.HTTP_200_OK
         )
-
 
 class ActualizarUbicacionSerializer(
     serializers.Serializer
@@ -163,14 +236,6 @@ class ActualizarUbicacionView(APIView):
 
     def post(self, request):
 
-        serializer = ActualizarUbicacionSerializer(
-            data=request.data
-        )
-
-        serializer.is_valid(
-            raise_exception=True
-        )
-
         chofer = getattr(
             request.user,
             "chofer_datos",
@@ -182,33 +247,30 @@ class ActualizarUbicacionView(APIView):
             return Response(
                 {
                     "status": "error",
-                    "message": (
-                        "El usuario autenticado "
-                        "no tiene perfil de chofer."
-                    )
+                    "message":
+                        "El usuario no tiene perfil de chofer."
                 },
                 status=status.HTTP_403_FORBIDDEN
             )
 
-        lat = serializer.validated_data["lat"]
-        lng = serializer.validated_data["lng"]
+        lat = request.data.get("lat")
+        lng = request.data.get("lng")
 
-        chofer.latitud = lat
-        chofer.longitud = lng
+        if lat is None or lng is None:
 
-        # Si tu modelo tiene este campo
-        if hasattr(chofer, "ultima_actualizacion"):
-            chofer.ultima_actualizacion = timezone.now()
-
-            chofer.save(
-                update_fields=[
-                    "latitud",
-                    "longitud",
-                    "ultima_actualizacion"
-                ]
+            return Response(
+                {
+                    "status": "error",
+                    "message":
+                        "Se requieren lat y lng."
+                },
+                status=status.HTTP_400_BAD_REQUEST
             )
 
-        else:
+        try:
+
+            chofer.latitud = float(lat)
+            chofer.longitud = float(lng)
 
             chofer.save(
                 update_fields=[
@@ -217,12 +279,22 @@ class ActualizarUbicacionView(APIView):
                 ]
             )
 
+        except (ValueError, TypeError):
+
+            return Response(
+                {
+                    "status": "error",
+                    "message":
+                        "Coordenadas inválidas."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         return Response(
             {
                 "status": "ok",
-                "message": "Ubicación actualizada.",
-                "lat": lat,
-                "lng": lng,
+                "lat": chofer.latitud,
+                "lng": chofer.longitud
             },
             status=status.HTTP_200_OK
         )
