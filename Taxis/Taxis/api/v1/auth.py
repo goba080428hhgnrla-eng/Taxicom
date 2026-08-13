@@ -18,18 +18,22 @@ quien hace la peticion.
 """
 from django.db import transaction
 from django.db.models import Q
+
 from rest_framework import serializers, status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
 from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.settings import api_settings
+
+from ...models import PerfilUsuario, Vehiculo, Chofer
 
 
 from ...models import PerfilUsuario, Vehiculo, Chofer
 
 
 def _usuario_a_dict(usuario: PerfilUsuario) -> dict:
-
     chofer_id = None
 
     if usuario.es_chofer and hasattr(usuario, "chofer_datos"):
@@ -38,16 +42,9 @@ def _usuario_a_dict(usuario: PerfilUsuario) -> dict:
     return {
         "id_usuario": usuario.id_usuario,
         "chofer_id": chofer_id,
-
-        "nombre": (
-            f"{usuario.nombre or ''} "
-            f"{usuario.apellido or ''}"
-        ).strip(),
-
+        "nombre": f"{usuario.nombre or ''} {usuario.apellido or ''}".strip(),
         "correo": usuario.email,
-
         "rol": usuario.rol,
-
         "es_cliente": usuario.es_cliente,
         "es_chofer": usuario.es_chofer,
         "es_admin": usuario.es_admin,
@@ -55,26 +52,24 @@ def _usuario_a_dict(usuario: PerfilUsuario) -> dict:
 
 
 def _emitir_tokens(usuario: PerfilUsuario) -> dict:
+    refresh = RefreshToken()
 
-    refresh = RefreshToken.for_user(usuario)
+    refresh[api_settings.USER_ID_CLAIM] = str(usuario.id_usuario)
+
+    access = refresh.access_token
 
     return {
-        "access": str(refresh.access_token),
+        "access": str(access),
         "refresh": str(refresh),
     }
 
 
 def _generar_username(correo: str) -> str:
-
     base_username = correo.split("@")[0]
-
     username = base_username
     contador = 1
 
-    while PerfilUsuario.objects.filter(
-        username=username
-    ).exists():
-
+    while PerfilUsuario.objects.filter(username=username).exists():
         username = f"{base_username}{contador}"
         contador += 1
 
@@ -82,43 +77,25 @@ def _generar_username(correo: str) -> str:
 
 
 class LoginSerializer(serializers.Serializer):
-
     correo_o_usuario = serializers.CharField()
-
-    password = serializers.CharField(
-        write_only=True
-    )
+    password = serializers.CharField(write_only=True)
 
     def validate(self, attrs):
-
         identificador = attrs["correo_o_usuario"]
 
         try:
-
             usuario = PerfilUsuario.objects.get(
-                Q(username=identificador)
-                |
+                Q(username=identificador) |
                 Q(email=identificador)
             )
-
         except PerfilUsuario.DoesNotExist:
-
             raise serializers.ValidationError(
                 "El usuario no existe."
             )
 
-        if not usuario.check_password(
-            attrs["password"]
-        ):
-
+        if not usuario.check_password(attrs["password"]):
             raise serializers.ValidationError(
-                "Contraseña incorrecta."
-            )
-
-        if not usuario.is_active:
-
-            raise serializers.ValidationError(
-                "El usuario está desactivado."
+                "Contrasena incorrecta."
             )
 
         attrs["usuario"] = usuario
@@ -127,31 +104,20 @@ class LoginSerializer(serializers.Serializer):
 
 
 class LoginView(APIView):
-
     permission_classes = [AllowAny]
 
     def post(self, request):
+        serializer = LoginSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
 
-        serializer = LoginSerializer(
-            data=request.data
-        )
+        usuario = serializer.validated_data["usuario"]
 
-        serializer.is_valid(
-            raise_exception=True
-        )
+        data = _emitir_tokens(usuario)
 
-        usuario = serializer.validated_data[
-            "usuario"
-        ]
-
-        tokens = _emitir_tokens(usuario)
+        data["usuario"] = _usuario_a_dict(usuario)
 
         return Response(
-            {
-                "access": tokens["access"],
-                "refresh": tokens["refresh"],
-                "usuario": _usuario_a_dict(usuario),
-            },
+            data,
             status=status.HTTP_200_OK
         )
 
