@@ -225,31 +225,16 @@ class ActualizarUbicacionSerializer(
 
 class ActualizarUbicacionView(APIView):
 
-    authentication_classes = [
-        PerfilUsuarioJWTAuthentication
-    ]
-
-    permission_classes = [
-        IsAuthenticated,
-        EsChofer
-    ]
+    authentication_classes = [PerfilUsuarioJWTAuthentication]
+    permission_classes = [IsAuthenticated, EsChofer]
 
     def post(self, request):
 
-        chofer = getattr(
-            request.user,
-            "chofer_datos",
-            None
-        )
+        chofer = getattr(request.user, "chofer_datos", None)
 
         if not chofer:
-
             return Response(
-                {
-                    "status": "error",
-                    "message":
-                        "El usuario no tiene perfil de chofer."
-                },
+                {"status": "error", "message": "El usuario no tiene perfil de chofer."},
                 status=status.HTTP_403_FORBIDDEN
             )
 
@@ -257,48 +242,44 @@ class ActualizarUbicacionView(APIView):
         lng = request.data.get("lng")
 
         if lat is None or lng is None:
-
             return Response(
-                {
-                    "status": "error",
-                    "message":
-                        "Se requieren lat y lng."
-                },
+                {"status": "error", "message": "Se requieren lat y lng."},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
         try:
-
             chofer.latitud = float(lat)
             chofer.longitud = float(lng)
-
-            chofer.save(
-                update_fields=[
-                    "latitud",
-                    "longitud"
-                ]
-            )
-
+            chofer.save(update_fields=["latitud", "longitud"])
         except (ValueError, TypeError):
-
             return Response(
-                {
-                    "status": "error",
-                    "message":
-                        "Coordenadas inválidas."
-                },
+                {"status": "error", "message": "Coordenadas inválidas."},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+        # NUEVO: propagar la ubicación en tiempo real
+        try:
+            channel_layer = get_channel_layer()
+            async_to_sync(channel_layer.group_send)(
+                GRUPO_COLECTIVOS,
+                {
+                    "type": "broadcast_ubicacion",
+                    "chofer_id": chofer.id,
+                    "latitud": chofer.latitud,
+                    "longitud": chofer.longitud,
+                    "nombre": f"{chofer.perfil.nombre or ''} {chofer.perfil.apellido or ''}".strip(),
+                    "vehiculo": f"{chofer.vehiculo.marca} {chofer.vehiculo.modelo}" if chofer.vehiculo else "Vehículo",
+                    "modalidad": chofer.get_estado_display(),
+                    "asientos_disponibles": chofer.asientos_disponibles,
+                },
+            )
+        except Exception as e:
+            print(f"Error enviando broadcast de ubicación: {e}")
+
         return Response(
-            {
-                "status": "ok",
-                "lat": chofer.latitud,
-                "lng": chofer.longitud
-            },
+            {"status": "ok", "lat": chofer.latitud, "lng": chofer.longitud},
             status=status.HTTP_200_OK
         )
-
 
 class PagarRolSerializer(serializers.Serializer):
     monto = serializers.FloatField(min_value=0.01)

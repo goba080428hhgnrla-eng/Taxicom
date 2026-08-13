@@ -12,10 +12,13 @@ const taxiIcon = L.icon({
 export default function Dashboard() {
   const [choferes, setChoferes] = useState([]);
   const [selectedDriver, setSelectedDriver] = useState(null);
+  const [wsStatus, setWsStatus] = useState('Conectando...');
 
   const mapRef = useRef(null);
   const mapInstance = useRef(null);
   const markers = useRef({});
+  const socketRef = useRef(null);
+  const reconnectTimeout = useRef(null);
 
   // =========================================================
   // ANIMACIÓN Y ELIMINACIÓN DE MARCADORES
@@ -86,37 +89,31 @@ export default function Dashboard() {
     }
   };
 
-  useEffect(() => {
-    if (!mapInstance.current) {
-      mapInstance.current = L.map(mapRef.current, { zoomControl: false }).setView([16.753, -93.115], 13);
-      L.control.zoom({ position: 'bottomright' }).addTo(mapInstance.current);
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-        attribution: '© OpenStreetMap © CARTO',
-      }).addTo(mapInstance.current);
+  // =========================================================
+  // WEBSOCKET (con token + reconexión)
+  // =========================================================
+
+  const conectarWebSocket = () => {
+    // AJUSTA ESTA LÍNEA a donde realmente guardas el access token
+    // (localStorage, un contexto de auth, etc. — debe ser el mismo
+    // que usa apiFetch para el header Authorization).
+    const accessToken = localStorage.getItem('access_token');
+
+    if (!accessToken) {
+      console.error('No hay access token disponible, no se puede abrir el WebSocket');
+      setWsStatus('Sin token');
+      return;
     }
 
-    // CARGA INICIAL POR API
-    apiFetch('/api/v1/admin/choferes/mapa/')
-      .then((res) => res.json())
-      .then((data) => {
-        setChoferes(data.choferes || []);
-        data.choferes?.forEach((c) => {
-          crearOActualizarMarcador(
-            c.chofer_id,
-            c.lat,
-            c.lng,
-            c.nombre,
-            c.vehiculo,
-            c.sketchfab_id,
-            c.asientos_disponibles
-          );
-        });
-      })
-      .catch((err) => console.error('Error cargando flota:', err));
-
-    // WEBSOCKET
     const wsScheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    const socket = new WebSocket(`${wsScheme}://${window.location.host}/ws/colectivos/`);
+    const socket = new WebSocket(
+      `${wsScheme}://${window.location.host}/ws/colectivos/?token=${accessToken}`
+    );
+    socketRef.current = socket;
+
+    socket.onopen = () => {
+      setWsStatus('WebSocket Conectado');
+    };
 
     socket.onmessage = (e) => {
       const data = JSON.parse(e.data);
@@ -169,8 +166,60 @@ export default function Dashboard() {
       }
     };
 
-    return () => {
+    socket.onclose = (e) => {
+      setWsStatus(`Desconectado (code ${e.code})`);
+
+      // code 4001 = token ausente/ inválido -> no tiene caso reintentar
+      // solo, hay que revisar el token. Cualquier otro código sí
+      // reintenta la conexión.
+      if (e.code !== 4001) {
+        reconnectTimeout.current = setTimeout(conectarWebSocket, 3000);
+      } else {
+        console.error('WebSocket rechazado por autenticación (code 4001)');
+      }
+    };
+
+    socket.onerror = () => {
       socket.close();
+    };
+  };
+
+  useEffect(() => {
+    if (!mapInstance.current) {
+      mapInstance.current = L.map(mapRef.current, { zoomControl: false }).setView([16.753, -93.115], 13);
+      L.control.zoom({ position: 'bottomright' }).addTo(mapInstance.current);
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+        attribution: '© OpenStreetMap © CARTO',
+      }).addTo(mapInstance.current);
+    }
+
+    // CARGA INICIAL POR API
+    apiFetch('/api/v1/admin/choferes/mapa/')
+      .then((res) => res.json())
+      .then((data) => {
+        setChoferes(data.choferes || []);
+        data.choferes?.forEach((c) => {
+          crearOActualizarMarcador(
+            c.chofer_id,
+            c.lat,
+            c.lng,
+            c.nombre,
+            c.vehiculo,
+            c.sketchfab_id,
+            c.asientos_disponibles
+          );
+        });
+      })
+      .catch((err) => console.error('Error cargando flota:', err));
+
+    // WEBSOCKET
+    conectarWebSocket();
+
+    return () => {
+      if (reconnectTimeout.current) {
+        clearTimeout(reconnectTimeout.current);
+      }
+      socketRef.current?.close();
       if (mapInstance.current) {
         mapInstance.current.remove();
         mapInstance.current = null;
@@ -192,7 +241,7 @@ export default function Dashboard() {
       <header className="w-full h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8">
         <p className="font-bold text-lg">CentralTaxi Admin</p>
         <span className="text-xs bg-emerald-50 text-emerald-700 px-3 py-1 rounded-full font-semibold">
-          WebSocket Conectado
+          {wsStatus}
         </span>
       </header>
 
