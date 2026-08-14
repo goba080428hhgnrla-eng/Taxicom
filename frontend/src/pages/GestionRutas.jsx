@@ -5,15 +5,27 @@ import { apiFetch } from '../api';
 
 const VILLA_DEL_CARBON = [19.727, -99.508];
 
+// Paleta de colores para diferenciar las rutas en el mapa
+const PALETA_COLORES = [
+  '#2563eb', // Azul
+  '#10b981', // Verde
+  '#8b5cf6', // Morado
+  '#f97316', // Naranja
+  '#ec4899', // Rosa
+  '#ef4444', // Rojo
+  '#06b6d4', // Cyan
+  '#84cc16', // Lima
+];
+
 export default function GestionRutas() {
   const [rutas, setRutas] = useState([]);
   const [choferes, setChoferes] = useState([]);
   const [rutaSeleccionada, setRutaSeleccionada] = useState(null);
+  const [verTodas, setVerTodas] = useState(true); // Controla si se ven todas las rutas a la vez
   const [nombreNuevaRuta, setNombreNuevaRuta] = useState('');
   
-  // Puntos clave / paradas del trazado
+  // Puntos clave y trazado en modo edicion
   const [puntosClave, setPuntosClave] = useState([]);
-  // Trazado de alta precisión
   const [trazadoCarretera, setTrazadoCarretera] = useState([]);
   
   const [dibujando, setDibujando] = useState(false);
@@ -24,7 +36,9 @@ export default function GestionRutas() {
   const mapRef = useRef(null);
   const mapInstance = useRef(null);
   const tileLayerRef = useRef(null);
-  const polylineRef = useRef(null);
+  
+  // Referencias de capas dibujadas en Leaflet
+  const polylinesGroupRef = useRef(L.featureGroup());
   const markersRef = useRef([]);
   const miUbicacionMarkerRef = useRef(null);
 
@@ -42,7 +56,7 @@ export default function GestionRutas() {
       .catch((err) => console.error("Error al cargar choferes:", err));
   };
 
-  // 1. Inicialización del Mapa con Capas Conmutables
+  // 1. Inicialización del Mapa
   useEffect(() => {
     if (!mapInstance.current) {
       mapInstance.current = L.map(mapRef.current, {
@@ -52,13 +66,14 @@ export default function GestionRutas() {
 
       L.control.zoom({ position: 'bottomright' }).addTo(mapInstance.current);
 
-      // Capa base por defecto (Voyager de CARTO para máxima claridad urbana)
       tileLayerRef.current = L.tileLayer(
         'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
         { maxZoom: 20, attribution: '© CARTO / OpenStreetMap' }
       ).addTo(mapInstance.current);
 
-      // Click para agregar coordenadas exactas
+      // Añadir grupo de capas al mapa
+      polylinesGroupRef.current.addTo(mapInstance.current);
+
       mapInstance.current.on('click', (e) => {
         setDibujando((isDibujando) => {
           if (!isDibujando) return isDibujando;
@@ -82,20 +97,17 @@ export default function GestionRutas() {
     cargarChoferes();
   }, []);
 
-  // Cambiar entre vista vectorial y vista de Satélite HD
+  // 2. Alternar entre Mapa Base y Satélite HD
   const alternarCapas = () => {
     if (!mapInstance.current || !tileLayerRef.current) return;
-
     mapInstance.current.removeLayer(tileLayerRef.current);
 
     if (!capaSatelite) {
-      // Satélite Esri World Imagery (Imágenes de alta resolución para zonas rurales)
       tileLayerRef.current = L.tileLayer(
         'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
         { maxZoom: 19, attribution: '© Esri Satellite' }
       );
     } else {
-      // Mapa Vectorial CARTO
       tileLayerRef.current = L.tileLayer(
         'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
         { maxZoom: 20, attribution: '© CARTO / OpenStreetMap' }
@@ -106,7 +118,7 @@ export default function GestionRutas() {
     setCapaSatelite(!capaSatelite);
   };
 
-  // 2. Motor de Trazado de Alta Precisión (OSRM con Geometría Completa)
+  // 3. Motor OSRM para edición de ruta activa
   useEffect(() => {
     if (puntosClave.length < 2) {
       setTrazadoCarretera(puntosClave);
@@ -115,7 +127,6 @@ export default function GestionRutas() {
 
     setCargandoRuta(true);
     const coordsString = puntosClave.map((pt) => `${pt[1]},${pt[0]}`).join(';');
-    // geometries=geojson&overview=full fuerza máxima definición vectorial en cada curva
     const url = `https://router.project-osrm.org/route/v1/driving/${coordsString}?overview=full&geometries=geojson&continue_straight=true`;
 
     fetch(url)
@@ -132,41 +143,89 @@ export default function GestionRutas() {
       .finally(() => setCargandoRuta(false));
   }, [puntosClave]);
 
-  // 3. Renderizado HD de Trazado e Indicadores
+  // 4. LÓGICA CLAVE DE RENDERIZADO DE RUTAS EN EL MAPA
   useEffect(() => {
     if (!mapInstance.current) return;
 
-    if (polylineRef.current) {
-      mapInstance.current.removeLayer(polylineRef.current);
-      polylineRef.current = null;
-    }
+    // Limpiar trazos y marcadores anteriores
+    polylinesGroupRef.current.clearLayers();
     markersRef.current.forEach((m) => mapInstance.current.removeLayer(m));
     markersRef.current = [];
 
-    if (trazadoCarretera.length > 0) {
-      polylineRef.current = L.polyline(trazadoCarretera, {
-        color: '#f59e0b',
-        weight: 6,
-        opacity: 0.9,
-        lineCap: 'round',
-        lineJoin: 'round',
-      }).addTo(mapInstance.current);
+    // MODO A: EDITANDO UNA RUTA (DIBUJANDO)
+    if (dibujando) {
+      if (trazadoCarretera.length > 0) {
+        const polyline = L.polyline(trazadoCarretera, {
+          color: '#f59e0b',
+          weight: 7,
+          opacity: 0.9,
+          lineCap: 'round',
+          lineJoin: 'round',
+        });
+        polylinesGroupRef.current.addLayer(polyline);
+      }
+
+      puntosClave.forEach((punto) => {
+        const marker = L.circleMarker(punto, {
+          radius: 7,
+          color: '#0f172a',
+          fillColor: '#fbbf24',
+          fillOpacity: 1,
+          weight: 3,
+        }).addTo(mapInstance.current);
+        markersRef.current.push(marker);
+      });
+      return;
     }
 
-    // Dibujar cada nodo/hito tocado por el admin
-    puntosClave.forEach((punto, index) => {
-      const marker = L.circleMarker(punto, {
-        radius: 7,
-        color: '#0f172a',
-        fillColor: '#fbbf24',
-        fillOpacity: 1,
-        weight: 3,
-      }).addTo(mapInstance.current);
-      markersRef.current.push(marker);
-    });
-  }, [trazadoCarretera, puntosClave]);
+    // MODO B: VER TODAS LAS RUTAS AL MISMO TIEMPO
+    if (verTodas) {
+      rutas.forEach((ruta, index) => {
+        if (ruta.trazado && ruta.trazado.length > 0) {
+          const colorRuta = PALETA_COLORES[index % PALETA_COLORES.length];
+          const esLaSeleccionada = rutaSeleccionada?.id === ruta.id;
 
-  // 4. Marcador GPS Móvil
+          const polyline = L.polyline(ruta.trazado, {
+            color: colorRuta,
+            weight: esLaSeleccionada ? 8 : 5,
+            opacity: esLaSeleccionada ? 1.0 : 0.65,
+            lineCap: 'round',
+            lineJoin: 'round',
+          });
+
+          polyline.bindTooltip(ruta.nombre, { permanent: false, direction: 'center' });
+          
+          // Al hacer clic sobre la línea en el mapa, seleccionarla
+          polyline.on('click', () => {
+            setRutaSeleccionada(ruta);
+            setVerTodas(false);
+          });
+
+          polylinesGroupRef.current.addLayer(polyline);
+        }
+      });
+      return;
+    }
+
+    // MODO C: VER SÓLO LA RUTA SELECCIONADA EN SU COLOR
+    if (rutaSeleccionada && rutaSeleccionada.trazado?.length > 0) {
+      const indexRuta = rutas.findIndex((r) => r.id === rutaSeleccionada.id);
+      const colorRuta = PALETA_COLORES[indexRuta % PALETA_COLORES.length] || '#2563eb';
+
+      const polyline = L.polyline(rutaSeleccionada.trazado, {
+        color: colorRuta,
+        weight: 8,
+        opacity: 0.95,
+        lineCap: 'round',
+        lineJoin: 'round',
+      });
+
+      polyline.bindTooltip(rutaSeleccionada.nombre, { permanent: true, direction: 'top' });
+      polylinesGroupRef.current.addLayer(polyline);
+    }
+  }, [rutas, rutaSeleccionada, verTodas, dibujando, trazadoCarretera, puntosClave]);
+
+  // 5. Marcador de GPS Móvil
   useEffect(() => {
     if (!mapInstance.current || !miUbicacion) return;
 
@@ -186,7 +245,7 @@ export default function GestionRutas() {
     }
   }, [miUbicacion]);
 
-  // Acciones rápidas
+  // Controles de cámara y selección
   const centrarMiUbicacion = () => {
     if (miUbicacion && mapInstance.current) {
       mapInstance.current.flyTo(miUbicacion, 17);
@@ -201,14 +260,25 @@ export default function GestionRutas() {
     }
   };
 
-  const seleccionarRuta = (ruta) => {
+  const seleccionarRutaIndividual = (ruta) => {
     setRutaSeleccionada(ruta);
-    setTrazadoCarretera(ruta.trazado || []);
-    setPuntosClave([]);
+    setVerTodas(false); // Oculta las demás rutas para enfocar esta
     setDibujando(false);
 
     if (ruta.trazado?.length > 0 && mapInstance.current) {
-      mapInstance.current.fitBounds(ruta.trazado, { padding: [30, 30] });
+      mapInstance.current.fitBounds(ruta.trazado, { padding: [40, 40] });
+    }
+  };
+
+  const mostrarTodasLasRutas = () => {
+    setRutaSeleccionada(null);
+    setVerTodas(true);
+    setDibujando(false);
+
+    if (polylinesGroupRef.current.getBounds().isValid() && mapInstance.current) {
+      mapInstance.current.fitBounds(polylinesGroupRef.current.getBounds(), { padding: [30, 30] });
+    } else {
+      centrarVilla();
     }
   };
 
@@ -226,6 +296,7 @@ export default function GestionRutas() {
       setNombreNuevaRuta('');
       cargarRutas();
       setRutaSeleccionada(nueva);
+      setVerTodas(false);
       setPuntosClave([]);
       setTrazadoCarretera([]);
       setDibujando(true);
@@ -248,11 +319,12 @@ export default function GestionRutas() {
   return (
     <div className="flex flex-col lg:grid lg:grid-cols-4 gap-4 p-3 md:p-6 max-w-7xl mx-auto font-sans antialiased min-h-screen">
       
-      {/* PANEL LATERAL / INFERIOR */}
+      {/* PANEL LATERAL DE GESTIÓN DE RUTAS */}
       <div className="order-2 lg:order-1 bg-white p-4 md:p-6 rounded-3xl shadow-sm border border-slate-200 flex flex-col max-h-[500px] lg:max-h-[720px] overflow-y-auto">
         <h2 className="text-base font-bold text-slate-900 mb-3">Rutas - Villa del Carbón</h2>
 
-        <form onSubmit={crearRuta} className="flex gap-2 mb-4">
+        {/* Crear Ruta */}
+        <form onSubmit={crearRuta} className="flex gap-2 mb-3">
           <input
             type="text"
             placeholder="Nombre de la ruta"
@@ -265,28 +337,51 @@ export default function GestionRutas() {
           </button>
         </form>
 
-        <div className="space-y-2 overflow-y-auto flex-1 mb-4">
-          {rutas.map((r) => (
-            <div
-              key={r.id}
-              onClick={() => seleccionarRuta(r)}
-              className={`p-3 rounded-2xl border cursor-pointer transition ${
-                rutaSeleccionada?.id === r.id
-                  ? 'bg-slate-900 text-white border-slate-900 shadow-md'
-                  : 'bg-slate-50 border-slate-200 hover:border-amber-300'
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <p className="font-bold text-sm">{r.nombre}</p>
-                <span className="text-[10px] bg-amber-500 text-slate-950 font-extrabold px-2 py-0.5 rounded-full">
+        {/* Botón General para Ver Todas las Rutas */}
+        <button
+          onClick={mostrarTodasLasRutas}
+          className={`w-full py-2.5 px-3 mb-3 rounded-xl font-bold text-xs border transition flex items-center justify-center gap-2 ${
+            verTodas
+              ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
+              : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+          }`}
+        >
+          👁️ Ver Todas las Rutas en el Mapa
+        </button>
+
+        {/* Lista de Rutas con Indicador de Color */}
+        <div className="space-y-2 overflow-y-auto flex-1 mb-3">
+          {rutas.map((r, index) => {
+            const colorRuta = PALETA_COLORES[index % PALETA_COLORES.length];
+            const estaSeleccionada = !verTodas && rutaSeleccionada?.id === r.id;
+
+            return (
+              <div
+                key={r.id}
+                onClick={() => seleccionarRutaIndividual(r)}
+                className={`p-3 rounded-2xl border cursor-pointer transition flex items-center justify-between ${
+                  estaSeleccionada
+                    ? 'bg-slate-900 text-white border-slate-900 shadow-md'
+                    : 'bg-slate-50 border-slate-200 hover:border-amber-300'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <span
+                    className="w-3.5 h-3.5 rounded-full shrink-0 shadow-sm"
+                    style={{ backgroundColor: colorRuta }}
+                  />
+                  <p className="font-bold text-sm">{r.nombre}</p>
+                </div>
+                <span className="text-[10px] opacity-75">
                   {(r.trazado || []).length > 0 ? `${r.trazado.length} pts` : 'Sin trazo'}
                 </span>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
-        {rutaSeleccionada && (
+        {/* Detalle y Edición de Ruta Seleccionada */}
+        {!verTodas && rutaSeleccionada && (
           <div className="pt-3 border-t border-slate-200 space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-slate-500 uppercase">Ruta: {rutaSeleccionada.nombre}</span>
@@ -295,6 +390,7 @@ export default function GestionRutas() {
                   if (confirm('¿Eliminar esta ruta?')) {
                     apiFetch(`/api/v1/admin/rutas/${rutaSeleccionada.id}/`, { method: 'DELETE' }).then(() => {
                       setRutaSeleccionada(null);
+                      setVerTodas(true);
                       cargarRutas();
                     });
                   }
@@ -313,12 +409,12 @@ export default function GestionRutas() {
                 }}
                 className="w-full bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-extrabold py-3 rounded-2xl shadow-sm transition"
               >
-                ✏️ Trazar / Editar en Mapa
+                ✏️ Editar / Redibujar Trazo
               </button>
             ) : (
               <div className="bg-amber-50 border border-amber-300 p-3 rounded-2xl space-y-2">
                 <p className="text-xs text-amber-950 font-semibold">
-                  {cargandoRuta ? '🔄 Calculando trayecto HD...' : '👉 Toca las curvas o vialidades por donde pasa la ruta.'}
+                  {cargandoRuta ? '🔄 Calculando carretera...' : '👉 Toca las calles por donde pasará esta ruta.'}
                 </p>
                 <div className="grid grid-cols-3 gap-1.5">
                   <button
@@ -351,7 +447,7 @@ export default function GestionRutas() {
         
         {dibujando && (
           <div className="absolute top-3 left-3 right-3 z-[1000] bg-slate-900/90 text-amber-400 backdrop-blur-md px-4 py-2.5 rounded-2xl text-xs font-bold text-center shadow-lg flex items-center justify-between">
-            <span>📍 Trazando Ruta en Vivo</span>
+            <span>📍 Dibujando Ruta Activa</span>
             <button
               onClick={() => setDibujando(false)}
               className="bg-slate-800 text-white px-2.5 py-1 rounded-xl text-[10px]"
@@ -361,7 +457,7 @@ export default function GestionRutas() {
           </div>
         )}
 
-        {/* BOTONES FLOTANTES DE MAPA Y NAVEGACIÓN */}
+        {/* BOTONES FLOTANTES */}
         <div className="absolute bottom-4 left-4 z-[1000] flex flex-wrap gap-2">
           <button
             onClick={centrarMiUbicacion}
@@ -381,7 +477,7 @@ export default function GestionRutas() {
             onClick={alternarCapas}
             className="bg-amber-500 text-slate-950 font-extrabold text-xs px-3.5 py-2.5 rounded-2xl shadow-lg hover:bg-amber-400 flex items-center gap-1.5 active:scale-95 transition"
           >
-            {capaSatelite ? '🗺️ Ver Mapa' : '🛰️ Ver Satélite HD'}
+            {capaSatelite ? '🗺️ Ver Mapa' : '🛰️ Satélite HD'}
           </button>
         </div>
 
