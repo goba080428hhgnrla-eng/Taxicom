@@ -5,7 +5,6 @@ import { apiFetch } from '../api';
 
 const VILLA_DEL_CARBON = [19.727, -99.508];
 
-// Paleta de colores para diferenciar las rutas en el mapa
 const PALETA_COLORES = [
   '#2563eb', // Azul
   '#10b981', // Verde
@@ -21,10 +20,11 @@ export default function GestionRutas() {
   const [rutas, setRutas] = useState([]);
   const [choferes, setChoferes] = useState([]);
   const [rutaSeleccionada, setRutaSeleccionada] = useState(null);
-  const [verTodas, setVerTodas] = useState(true); // Controla si se ven todas las rutas a la vez
+  const [verTodas, setVerTodas] = useState(true);
   const [nombreNuevaRuta, setNombreNuevaRuta] = useState('');
+  const [mapaListo, setMapaListo] = useState(false); // Flag para asegurar que el mapa está montado
   
-  // Puntos clave y trazado en modo edicion
+  // Puntos clave y trazado en edición
   const [puntosClave, setPuntosClave] = useState([]);
   const [trazadoCarretera, setTrazadoCarretera] = useState([]);
   
@@ -37,15 +37,18 @@ export default function GestionRutas() {
   const mapInstance = useRef(null);
   const tileLayerRef = useRef(null);
   
-  // Referencias de capas dibujadas en Leaflet
   const polylinesGroupRef = useRef(L.featureGroup());
   const markersRef = useRef([]);
   const miUbicacionMarkerRef = useRef(null);
 
   const cargarRutas = () => {
-    apiFetch('/api/v1/admin/rutas/')
+    return apiFetch('/api/v1/admin/rutas/')
       .then((res) => res.json())
-      .then((data) => setRutas(data.rutas || []))
+      .then((data) => {
+        const lista = data.rutas || [];
+        setRutas(lista);
+        return lista;
+      })
       .catch((err) => console.error("Error al cargar rutas:", err));
   };
 
@@ -56,13 +59,13 @@ export default function GestionRutas() {
       .catch((err) => console.error("Error al cargar choferes:", err));
   };
 
-  // 1. Inicialización del Mapa
+  // 1. Inicializar Mapa Leaflet y Cargar Datos Iniciales
   useEffect(() => {
     if (!mapInstance.current) {
       mapInstance.current = L.map(mapRef.current, {
         zoomControl: false,
         maxZoom: 20
-      }).setView(VILLA_DEL_CARBON, 15);
+      }).setView(VILLA_DEL_CARBON, 14);
 
       L.control.zoom({ position: 'bottomright' }).addTo(mapInstance.current);
 
@@ -71,7 +74,6 @@ export default function GestionRutas() {
         { maxZoom: 20, attribution: '© CARTO / OpenStreetMap' }
       ).addTo(mapInstance.current);
 
-      // Añadir grupo de capas al mapa
       polylinesGroupRef.current.addTo(mapInstance.current);
 
       mapInstance.current.on('click', (e) => {
@@ -82,6 +84,8 @@ export default function GestionRutas() {
           return isDibujando;
         });
       });
+
+      setMapaListo(true);
     }
 
     if ('geolocation' in navigator) {
@@ -93,11 +97,11 @@ export default function GestionRutas() {
       return () => navigator.geolocation.clearWatch(watchId);
     }
 
-    cargarRutas();
     cargarChoferes();
+    cargarRutas();
   }, []);
 
-  // 2. Alternar entre Mapa Base y Satélite HD
+  // 2. Alternar entre Mapa Normal y Satélite HD
   const alternarCapas = () => {
     if (!mapInstance.current || !tileLayerRef.current) return;
     mapInstance.current.removeLayer(tileLayerRef.current);
@@ -118,7 +122,7 @@ export default function GestionRutas() {
     setCapaSatelite(!capaSatelite);
   };
 
-  // 3. Motor OSRM para edición de ruta activa
+  // 3. Motor OSRM para edición
   useEffect(() => {
     if (puntosClave.length < 2) {
       setTrazadoCarretera(puntosClave);
@@ -143,16 +147,15 @@ export default function GestionRutas() {
       .finally(() => setCargandoRuta(false));
   }, [puntosClave]);
 
-  // 4. LÓGICA CLAVE DE RENDERIZADO DE RUTAS EN EL MAPA
+  // 4. RENDERIZADO INMEDIATO Y DIBUJO DE RUTAS EN EL MAPA
   useEffect(() => {
-    if (!mapInstance.current) return;
+    if (!mapInstance.current || !mapaListo) return;
 
-    // Limpiar trazos y marcadores anteriores
     polylinesGroupRef.current.clearLayers();
     markersRef.current.forEach((m) => mapInstance.current.removeLayer(m));
     markersRef.current = [];
 
-    // MODO A: EDITANDO UNA RUTA (DIBUJANDO)
+    // CASO A: MODO DIBUJO
     if (dibujando) {
       if (trazadoCarretera.length > 0) {
         const polyline = L.polyline(trazadoCarretera, {
@@ -178,24 +181,22 @@ export default function GestionRutas() {
       return;
     }
 
-    // MODO B: VER TODAS LAS RUTAS AL MISMO TIEMPO
+    // CASO B: MOSTRAR TODAS LAS RUTAS DESDE EL INICIO
     if (verTodas) {
       rutas.forEach((ruta, index) => {
         if (ruta.trazado && ruta.trazado.length > 0) {
           const colorRuta = PALETA_COLORES[index % PALETA_COLORES.length];
-          const esLaSeleccionada = rutaSeleccionada?.id === ruta.id;
 
           const polyline = L.polyline(ruta.trazado, {
             color: colorRuta,
-            weight: esLaSeleccionada ? 8 : 5,
-            opacity: esLaSeleccionada ? 1.0 : 0.65,
+            weight: 5,
+            opacity: 0.8,
             lineCap: 'round',
             lineJoin: 'round',
           });
 
           polyline.bindTooltip(ruta.nombre, { permanent: false, direction: 'center' });
-          
-          // Al hacer clic sobre la línea en el mapa, seleccionarla
+
           polyline.on('click', () => {
             setRutaSeleccionada(ruta);
             setVerTodas(false);
@@ -204,10 +205,15 @@ export default function GestionRutas() {
           polylinesGroupRef.current.addLayer(polyline);
         }
       });
+
+      // Si hay rutas con trazo, enfocar automáticamente el mapa sobre todas ellas
+      if (polylinesGroupRef.current.getBounds().isValid()) {
+        mapInstance.current.fitBounds(polylinesGroupRef.current.getBounds(), { padding: [40, 40] });
+      }
       return;
     }
 
-    // MODO C: VER SÓLO LA RUTA SELECCIONADA EN SU COLOR
+    // CASO C: MOSTRAR SÓLO LA RUTA SELECCIONADA
     if (rutaSeleccionada && rutaSeleccionada.trazado?.length > 0) {
       const indexRuta = rutas.findIndex((r) => r.id === rutaSeleccionada.id);
       const colorRuta = PALETA_COLORES[indexRuta % PALETA_COLORES.length] || '#2563eb';
@@ -223,9 +229,9 @@ export default function GestionRutas() {
       polyline.bindTooltip(rutaSeleccionada.nombre, { permanent: true, direction: 'top' });
       polylinesGroupRef.current.addLayer(polyline);
     }
-  }, [rutas, rutaSeleccionada, verTodas, dibujando, trazadoCarretera, puntosClave]);
+  }, [rutas, rutaSeleccionada, verTodas, dibujando, trazadoCarretera, puntosClave, mapaListo]);
 
-  // 5. Marcador de GPS Móvil
+  // 5. GPS
   useEffect(() => {
     if (!mapInstance.current || !miUbicacion) return;
 
@@ -245,7 +251,6 @@ export default function GestionRutas() {
     }
   }, [miUbicacion]);
 
-  // Controles de cámara y selección
   const centrarMiUbicacion = () => {
     if (miUbicacion && mapInstance.current) {
       mapInstance.current.flyTo(miUbicacion, 17);
@@ -262,7 +267,7 @@ export default function GestionRutas() {
 
   const seleccionarRutaIndividual = (ruta) => {
     setRutaSeleccionada(ruta);
-    setVerTodas(false); // Oculta las demás rutas para enfocar esta
+    setVerTodas(false);
     setDibujando(false);
 
     if (ruta.trazado?.length > 0 && mapInstance.current) {
@@ -276,7 +281,7 @@ export default function GestionRutas() {
     setDibujando(false);
 
     if (polylinesGroupRef.current.getBounds().isValid() && mapInstance.current) {
-      mapInstance.current.fitBounds(polylinesGroupRef.current.getBounds(), { padding: [30, 30] });
+      mapInstance.current.fitBounds(polylinesGroupRef.current.getBounds(), { padding: [40, 40] });
     } else {
       centrarVilla();
     }
@@ -294,7 +299,7 @@ export default function GestionRutas() {
     if (res.ok) {
       const nueva = await res.json();
       setNombreNuevaRuta('');
-      cargarRutas();
+      await cargarRutas();
       setRutaSeleccionada(nueva);
       setVerTodas(false);
       setPuntosClave([]);
@@ -312,14 +317,14 @@ export default function GestionRutas() {
     if (res.ok) {
       setDibujando(false);
       setPuntosClave([]);
-      cargarRutas();
+      await cargarRutas();
     }
   };
 
   return (
     <div className="flex flex-col lg:grid lg:grid-cols-4 gap-4 p-3 md:p-6 max-w-7xl mx-auto font-sans antialiased min-h-screen">
       
-      {/* PANEL LATERAL DE GESTIÓN DE RUTAS */}
+      {/* PANEL LATERAL */}
       <div className="order-2 lg:order-1 bg-white p-4 md:p-6 rounded-3xl shadow-sm border border-slate-200 flex flex-col max-h-[500px] lg:max-h-[720px] overflow-y-auto">
         <h2 className="text-base font-bold text-slate-900 mb-3">Rutas - Villa del Carbón</h2>
 
@@ -337,7 +342,7 @@ export default function GestionRutas() {
           </button>
         </form>
 
-        {/* Botón General para Ver Todas las Rutas */}
+        {/* Botón para Ver Todas las Rutas */}
         <button
           onClick={mostrarTodasLasRutas}
           className={`w-full py-2.5 px-3 mb-3 rounded-xl font-bold text-xs border transition flex items-center justify-center gap-2 ${
@@ -349,7 +354,7 @@ export default function GestionRutas() {
           👁️ Ver Todas las Rutas en el Mapa
         </button>
 
-        {/* Lista de Rutas con Indicador de Color */}
+        {/* Lista de Rutas */}
         <div className="space-y-2 overflow-y-auto flex-1 mb-3">
           {rutas.map((r, index) => {
             const colorRuta = PALETA_COLORES[index % PALETA_COLORES.length];
@@ -380,7 +385,7 @@ export default function GestionRutas() {
           })}
         </div>
 
-        {/* Detalle y Edición de Ruta Seleccionada */}
+        {/* Edición de Ruta Seleccionada */}
         {!verTodas && rutaSeleccionada && (
           <div className="pt-3 border-t border-slate-200 space-y-3">
             <div className="flex items-center justify-between">
