@@ -18,48 +18,55 @@ const PALETA_COLORES = [
 
 export default function GestionRutas() {
   const [rutas, setRutas] = useState([]);
-  const [choferes, setChoferes] = useState([]);
   const [rutaSeleccionada, setRutaSeleccionada] = useState(null);
   const [verTodas, setVerTodas] = useState(true);
   const [nombreNuevaRuta, setNombreNuevaRuta] = useState('');
-  const [mapaListo, setMapaListo] = useState(false); // Flag para asegurar que el mapa está montado
+  const [cargandoLista, setCargandoLista] = useState(true);
+  const [errorCarga, setErrorCarga] = useState(null);
   
-  // Puntos clave y trazado en edición
+  // Estados para modo dibujo
   const [puntosClave, setPuntosClave] = useState([]);
   const [trazadoCarretera, setTrazadoCarretera] = useState([]);
-  
   const [dibujando, setDibujando] = useState(false);
   const [cargandoRuta, setCargandoRuta] = useState(false);
+  
   const [miUbicacion, setMiUbicacion] = useState(null);
   const [capaSatelite, setCapaSatelite] = useState(false);
 
   const mapRef = useRef(null);
   const mapInstance = useRef(null);
   const tileLayerRef = useRef(null);
-  
   const polylinesGroupRef = useRef(L.featureGroup());
   const markersRef = useRef([]);
   const miUbicacionMarkerRef = useRef(null);
 
-  const cargarRutas = () => {
-    return apiFetch('/api/v1/admin/rutas/')
-      .then((res) => res.json())
-      .then((data) => {
-        const lista = data.rutas || [];
-        setRutas(lista);
-        return lista;
-      })
-      .catch((err) => console.error("Error al cargar rutas:", err));
+  // 1. CARGA INDEPENDIENTE DE RUTAS DESDE LA API (Se ejecuta al instante al entrar)
+  const cargarRutas = async () => {
+    setCargandoLista(true);
+    setErrorCarga(null);
+    try {
+      const res = await apiFetch('/api/v1/admin/rutas/');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      
+      // Soporta respuesta directa en Array [...] o dentro de { rutas: [...] }
+      const listaRutas = Array.isArray(data) ? data : (data.rutas || []);
+      setRutas(listaRutas);
+      return listaRutas;
+    } catch (err) {
+      console.error("Error al obtener rutas guardadas:", err);
+      setErrorCarga("No se pudieron cargar las rutas guardadas.");
+      setRutas([]);
+    } finally {
+      setCargandoLista(false);
+    }
   };
 
-  const cargarChoferes = () => {
-    apiFetch('/api/v1/admin/roles/')
-      .then((res) => res.json())
-      .then((data) => setChoferes(data.choferes || []))
-      .catch((err) => console.error("Error al cargar choferes:", err));
-  };
+  useEffect(() => {
+    cargarRutas();
+  }, []);
 
-  // 1. Inicializar Mapa Leaflet y Cargar Datos Iniciales
+  // 2. INICIALIZACIÓN DEL MAPA
   useEffect(() => {
     if (!mapInstance.current) {
       mapInstance.current = L.map(mapRef.current, {
@@ -84,10 +91,9 @@ export default function GestionRutas() {
           return isDibujando;
         });
       });
-
-      setMapaListo(true);
     }
 
+    // Geolocalización
     if ('geolocation' in navigator) {
       const watchId = navigator.geolocation.watchPosition(
         (pos) => setMiUbicacion([pos.coords.latitude, pos.coords.longitude]),
@@ -96,12 +102,9 @@ export default function GestionRutas() {
       );
       return () => navigator.geolocation.clearWatch(watchId);
     }
-
-    cargarChoferes();
-    cargarRutas();
   }, []);
 
-  // 2. Alternar entre Mapa Normal y Satélite HD
+  // 3. CAMBIO DE CAPAS DE MAPA
   const alternarCapas = () => {
     if (!mapInstance.current || !tileLayerRef.current) return;
     mapInstance.current.removeLayer(tileLayerRef.current);
@@ -122,7 +125,7 @@ export default function GestionRutas() {
     setCapaSatelite(!capaSatelite);
   };
 
-  // 3. Motor OSRM para edición
+  // 4. MOTOR OSRM DE TRAZADO
   useEffect(() => {
     if (puntosClave.length < 2) {
       setTrazadoCarretera(puntosClave);
@@ -147,9 +150,9 @@ export default function GestionRutas() {
       .finally(() => setCargandoRuta(false));
   }, [puntosClave]);
 
-  // 4. RENDERIZADO INMEDIATO Y DIBUJO DE RUTAS EN EL MAPA
+  // 5. PINTAR RUTAS EN EL MAPA AUTOMÁTICAMENTE CUANDO LLEGAN DE LA API
   useEffect(() => {
-    if (!mapInstance.current || !mapaListo) return;
+    if (!mapInstance.current) return;
 
     polylinesGroupRef.current.clearLayers();
     markersRef.current.forEach((m) => mapInstance.current.removeLayer(m));
@@ -181,7 +184,7 @@ export default function GestionRutas() {
       return;
     }
 
-    // CASO B: MOSTRAR TODAS LAS RUTAS DESDE EL INICIO
+    // CASO B: MOSTRAR TODAS LAS RUTAS
     if (verTodas) {
       rutas.forEach((ruta, index) => {
         if (ruta.trazado && ruta.trazado.length > 0) {
@@ -206,14 +209,14 @@ export default function GestionRutas() {
         }
       });
 
-      // Si hay rutas con trazo, enfocar automáticamente el mapa sobre todas ellas
-      if (polylinesGroupRef.current.getBounds().isValid()) {
+      // Enfocar mapa sobre las rutas si existen
+      if (rutas.length > 0 && polylinesGroupRef.current.getBounds().isValid()) {
         mapInstance.current.fitBounds(polylinesGroupRef.current.getBounds(), { padding: [40, 40] });
       }
       return;
     }
 
-    // CASO C: MOSTRAR SÓLO LA RUTA SELECCIONADA
+    // CASO C: MOSTRAR SOLO LA RUTA SELECCIONADA
     if (rutaSeleccionada && rutaSeleccionada.trazado?.length > 0) {
       const indexRuta = rutas.findIndex((r) => r.id === rutaSeleccionada.id);
       const colorRuta = PALETA_COLORES[indexRuta % PALETA_COLORES.length] || '#2563eb';
@@ -229,9 +232,9 @@ export default function GestionRutas() {
       polyline.bindTooltip(rutaSeleccionada.nombre, { permanent: true, direction: 'top' });
       polylinesGroupRef.current.addLayer(polyline);
     }
-  }, [rutas, rutaSeleccionada, verTodas, dibujando, trazadoCarretera, puntosClave, mapaListo]);
+  }, [rutas, rutaSeleccionada, verTodas, dibujando, trazadoCarretera, puntosClave]);
 
-  // 5. GPS
+  // 6. MARCACIÓN GPS
   useEffect(() => {
     if (!mapInstance.current || !miUbicacion) return;
 
@@ -324,7 +327,7 @@ export default function GestionRutas() {
   return (
     <div className="flex flex-col lg:grid lg:grid-cols-4 gap-4 p-3 md:p-6 max-w-7xl mx-auto font-sans antialiased min-h-screen">
       
-      {/* PANEL LATERAL */}
+      {/* PANEL LATERAL DE RUTAS */}
       <div className="order-2 lg:order-1 bg-white p-4 md:p-6 rounded-3xl shadow-sm border border-slate-200 flex flex-col max-h-[500px] lg:max-h-[720px] overflow-y-auto">
         <h2 className="text-base font-bold text-slate-900 mb-3">Rutas - Villa del Carbón</h2>
 
@@ -342,7 +345,7 @@ export default function GestionRutas() {
           </button>
         </form>
 
-        {/* Botón para Ver Todas las Rutas */}
+        {/* Ver Todas */}
         <button
           onClick={mostrarTodasLasRutas}
           className={`w-full py-2.5 px-3 mb-3 rounded-xl font-bold text-xs border transition flex items-center justify-center gap-2 ${
@@ -354,36 +357,53 @@ export default function GestionRutas() {
           👁️ Ver Todas las Rutas en el Mapa
         </button>
 
-        {/* Lista de Rutas */}
-        <div className="space-y-2 overflow-y-auto flex-1 mb-3">
-          {rutas.map((r, index) => {
-            const colorRuta = PALETA_COLORES[index % PALETA_COLORES.length];
-            const estaSeleccionada = !verTodas && rutaSeleccionada?.id === r.id;
+        {/* ESTADOS DE CARGA Y LISTA */}
+        {cargandoLista ? (
+          <div className="py-8 text-center text-xs text-slate-400 font-medium animate-pulse">
+            Cargando rutas registradas...
+          </div>
+        ) : errorCarga ? (
+          <div className="py-4 text-center text-xs text-red-500 bg-red-50 rounded-xl p-2">
+            {errorCarga}
+            <button onClick={cargarRutas} className="block mx-auto mt-2 text-slate-900 font-bold underline">
+              Reintentar
+            </button>
+          </div>
+        ) : rutas.length === 0 ? (
+          <div className="py-8 text-center text-xs text-slate-400">
+            No hay rutas registradas aún. Crea la primera arriba.
+          </div>
+        ) : (
+          <div className="space-y-2 overflow-y-auto flex-1 mb-3">
+            {rutas.map((r, index) => {
+              const colorRuta = PALETA_COLORES[index % PALETA_COLORES.length];
+              const estaSeleccionada = !verTodas && rutaSeleccionada?.id === r.id;
 
-            return (
-              <div
-                key={r.id}
-                onClick={() => seleccionarRutaIndividual(r)}
-                className={`p-3 rounded-2xl border cursor-pointer transition flex items-center justify-between ${
-                  estaSeleccionada
-                    ? 'bg-slate-900 text-white border-slate-900 shadow-md'
-                    : 'bg-slate-50 border-slate-200 hover:border-amber-300'
-                }`}
-              >
-                <div className="flex items-center gap-2.5">
-                  <span
-                    className="w-3.5 h-3.5 rounded-full shrink-0 shadow-sm"
-                    style={{ backgroundColor: colorRuta }}
-                  />
-                  <p className="font-bold text-sm">{r.nombre}</p>
+              return (
+                <div
+                  key={r.id || index}
+                  onClick={() => seleccionarRutaIndividual(r)}
+                  className={`p-3 rounded-2xl border cursor-pointer transition flex items-center justify-between ${
+                    estaSeleccionada
+                      ? 'bg-slate-900 text-white border-slate-900 shadow-md'
+                      : 'bg-slate-50 border-slate-200 hover:border-amber-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <span
+                      className="w-3.5 h-3.5 rounded-full shrink-0 shadow-sm"
+                      style={{ backgroundColor: colorRuta }}
+                    />
+                    <p className="font-bold text-sm">{r.nombre}</p>
+                  </div>
+                  <span className="text-[10px] opacity-75">
+                    {(r.trazado || []).length > 0 ? `${r.trazado.length} pts` : 'Sin trazo'}
+                  </span>
                 </div>
-                <span className="text-[10px] opacity-75">
-                  {(r.trazado || []).length > 0 ? `${r.trazado.length} pts` : 'Sin trazo'}
-                </span>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
 
         {/* Edición de Ruta Seleccionada */}
         {!verTodas && rutaSeleccionada && (
