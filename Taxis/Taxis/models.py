@@ -194,9 +194,11 @@ class Viaje(models.Model):
     estado = models.CharField(max_length=20, choices=ESTADOS_VIAJE, default='solicitado', db_index=True)
     fecha_creacion = models.DateTimeField(auto_now_add=True)
 
+
 class Ruta(models.Model):
     nombre = models.CharField(max_length=100)
     descripcion = models.TextField(blank=True, null=True)
+    trazado = models.JSONField(default=list, blank=True) # <-- Asegurar JSONField
 
     def __str__(self):
         return self.nombre

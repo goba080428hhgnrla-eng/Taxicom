@@ -25,10 +25,10 @@ CORS_ALLOW_ALL_ORIGINS = True
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": os.getenv("DB_NAME"),
-        "USER": os.getenv("DB_USER"),
-        "PASSWORD": os.getenv("DB_PASSWORD"),
-        "HOST": os.getenv("DB_HOST"),
+        "NAME": os.getenv("DB_NAME", "postgres"),
+        "USER": os.getenv("DB_USER", "postgres.unuolujqabheubztjdtm"),
+        "PASSWORD": os.getenv("DB_PASSWORD", "Taxicom/*12"),
+        "HOST": os.getenv("DB_HOST", "aws-0-us-east-2.pooler.supabase.com"),
         "PORT": os.getenv("DB_PORT", "5432"),
         "CONN_MAX_AGE": 600,
         "OPTIONS": {
