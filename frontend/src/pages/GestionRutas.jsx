@@ -16,7 +16,7 @@ const PALETA_COLORES = [
   '#84cc16', // Lima
 ];
 
-// Función auxiliar: Distancia perpendicular de un punto C al segmento A-B
+// Distancia perpendicular de un punto P al segmento P1-P2
 function distanciaASegmento(p, p1, p2) {
   const x = p[0], y = p[1];
   const x1 = p1[0], y1 = p1[1];
@@ -38,40 +38,50 @@ function distanciaASegmento(p, p1, p2) {
   return Math.hypot(x - projX, y - projY);
 }
 
-// Función principal para insertar el nuevo punto en el segmento más cercano
-function insertarEnPuntoMasCercano(listaPuntos, nuevoPunto) {
-  if (listaPuntos.length < 2) {
-    return [...listaPuntos, nuevoPunto];
+// Función que inserta el nuevo punto en el orden correcto usando la curva real de la carretera
+function insertarInteligente(puntosClave, trazadoCarretera, nuevoPunto) {
+  if (puntosClave.length < 2 || trazadoCarretera.length < 2) {
+    return [...puntosClave, nuevoPunto];
   }
 
-  let mejorIndice = listaPuntos.length; // Por defecto al final
+  // 1. Buscar en qué segmento de la CARRETERA COMPLETA (OSRM) cayó el clic
+  let indiceCarreteraCercano = 0;
   let menorDistancia = Infinity;
 
-  // Evaluar cada segmento formado por p[i] y p[i+1]
-  for (let i = 0; i < listaPuntos.length - 1; i++) {
-    const dist = distanciaASegmento(nuevoPunto, listaPuntos[i], listaPuntos[i + 1]);
+  for (let i = 0; i < trazadoCarretera.length - 1; i++) {
+    const dist = distanciaASegmento(nuevoPunto, trazadoCarretera[i], trazadoCarretera[i + 1]);
     if (dist < menorDistancia) {
       menorDistancia = dist;
-      mejorIndice = i + 1; // Insertar entre i e i+1
+      indiceCarreteraCercano = i;
     }
   }
 
-  // Evaluar cercanía a los extremos
-  const distInicio = Math.hypot(nuevoPunto[0] - listaPuntos[0][0], nuevoPunto[1] - listaPuntos[0][1]);
-  const distFin = Math.hypot(
-    nuevoPunto[0] - listaPuntos[listaPuntos.length - 1][0],
-    nuevoPunto[1] - listaPuntos[listaPuntos.length - 1][1]
-  );
+  const coordCarreteraCercana = trazadoCarretera[indiceCarreteraCercano];
 
-  if (distInicio < menorDistancia) {
-    mejorIndice = 0; // Insertar al inicio
-  } else if (distFin < menorDistancia && menorDistancia === Infinity) {
-    mejorIndice = listaPuntos.length; // Insertar al final
+  // 2. Mapear esa coordenada de la carretera hacia el array de `puntosClave` para mantener el orden
+  let mejorIndiceClave = puntosClave.length;
+  let menorDistanciaClave = Infinity;
+
+  for (let i = 0; i < puntosClave.length; i++) {
+    const dist = Math.hypot(
+      puntosClave[i][0] - coordCarreteraCercana[0],
+      puntosClave[i][1] - coordCarreteraCercana[1]
+    );
+    if (dist < menorDistanciaClave) {
+      menorDistanciaClave = dist;
+      mejorIndiceClave = i + 1;
+    }
   }
 
-  const nuevaLista = [...listaPuntos];
-  nuevaLista.splice(mejorIndice, 0, nuevoPunto);
-  return nuevaLista;
+  // Si está más cerca del primer punto clave, se agrega al inicio
+  const distPrimerClave = Math.hypot(puntosClave[0][0] - nuevoPunto[0], puntosClave[0][1] - nuevoPunto[1]);
+  if (distPrimerClave < menorDistancia) {
+    mejorIndiceClave = 0;
+  }
+
+  const nuevosPuntosClave = [...puntosClave];
+  nuevosPuntosClave.splice(mejorIndiceClave, 0, nuevoPunto);
+  return nuevosPuntosClave;
 }
 
 export default function GestionRutas() {
@@ -82,7 +92,7 @@ export default function GestionRutas() {
   const [cargandoLista, setCargandoLista] = useState(true);
   const [errorCarga, setErrorCarga] = useState(null);
   
-  // Estados para modo dibujo
+  // Estados para trazado por carreteras
   const [puntosClave, setPuntosClave] = useState([]);
   const [trazadoCarretera, setTrazadoCarretera] = useState([]);
   const [dibujando, setDibujando] = useState(false);
@@ -98,7 +108,19 @@ export default function GestionRutas() {
   const markersRef = useRef([]);
   const miUbicacionMarkerRef = useRef(null);
 
-  // 1. CARGA INDEPENDIENTE DE RUTAS DESDE LA API
+  // Guardar referencias actualizadas para usarlas dentro de eventos de Leaflet
+  const puntosClaveRef = useRef(puntosClave);
+  const trazadoCarreteraRef = useRef(trazadoCarretera);
+  
+  useEffect(() => {
+    puntosClaveRef.current = puntosClave;
+  }, [puntosClave]);
+
+  useEffect(() => {
+    trazadoCarreteraRef.current = trazadoCarretera;
+  }, [trazadoCarretera]);
+
+  // 1. CARGA DE RUTAS DESDE BACKEND
   const cargarRutas = async () => {
     setCargandoLista(true);
     setErrorCarga(null);
@@ -140,13 +162,15 @@ export default function GestionRutas() {
 
       polylinesGroupRef.current.addTo(mapInstance.current);
 
-      // EVENTO CLIC EN EL MAPA (INSERCIÓN INTELIGENTE)
+      // CLICK EN MAPA: INSERTA RESPETANDO LAS CALLES
       mapInstance.current.on('click', (e) => {
         setDibujando((isDibujando) => {
           if (!isDibujando) return isDibujando;
           const nuevaCoord = [e.latlng.lat, e.latlng.lng];
           
-          setPuntosClave((prev) => insertarEnPuntoMasCercano(prev, nuevaCoord));
+          setPuntosClave((prevPuntos) =>
+            insertarInteligente(prevPuntos, trazadoCarreteraRef.current, nuevaCoord)
+          );
           return isDibujando;
         });
       });
@@ -183,7 +207,7 @@ export default function GestionRutas() {
     setCapaSatelite(!capaSatelite);
   };
 
-  // 4. MOTOR OSRM DE TRAZADO (Cálculo de trayectoria)
+  // 4. CONSULTA A OSRM PARA SEGUIR CARRETERAS
   useEffect(() => {
     if (puntosClave.length < 2) {
       setTrazadoCarretera(puntosClave);
@@ -208,7 +232,7 @@ export default function GestionRutas() {
       .finally(() => setCargandoRuta(false));
   }, [puntosClave]);
 
-  // 5. PINTAR RUTAS Y MARCADORES EN EL MAPA
+  // 5. RENDERIZADO EN MAPA
   useEffect(() => {
     if (!mapInstance.current) return;
 
@@ -216,12 +240,12 @@ export default function GestionRutas() {
     markersRef.current.forEach((m) => mapInstance.current.removeLayer(m));
     markersRef.current = [];
 
-    // MODO DIBUJO/EDICIÓN
+    // MODO EDICIÓN / DIBUJO
     if (dibujando) {
       if (trazadoCarretera.length > 0) {
         const polyline = L.polyline(trazadoCarretera, {
           color: '#f59e0b',
-          weight: 7,
+          weight: 6,
           opacity: 0.9,
           lineCap: 'round',
           lineJoin: 'round',
@@ -229,17 +253,15 @@ export default function GestionRutas() {
         polylinesGroupRef.current.addLayer(polyline);
       }
 
-      // Dibujar marcadores
+      // Renderizar marcadores con su número de secuencia
       puntosClave.forEach((punto, idx) => {
         const marker = L.circleMarker(punto, {
-          radius: 7,
+          radius: 6,
           color: '#0f172a',
           fillColor: '#fbbf24',
           fillOpacity: 1,
-          weight: 3,
-        })
-          .bindTooltip(`${idx + 1}`, { permanent: true, direction: 'center', className: 'bg-transparent border-0 font-bold text-[10px]' })
-          .addTo(mapInstance.current);
+          weight: 2,
+        }).addTo(mapInstance.current);
 
         markersRef.current.push(marker);
       });
@@ -284,7 +306,7 @@ export default function GestionRutas() {
 
       const polyline = L.polyline(rutaSeleccionada.trazado, {
         color: colorRuta,
-        weight: 8,
+        weight: 7,
         opacity: 0.95,
         lineCap: 'round',
         lineJoin: 'round',
@@ -295,7 +317,7 @@ export default function GestionRutas() {
     }
   }, [rutas, rutaSeleccionada, verTodas, dibujando, trazadoCarretera, puntosClave]);
 
-  // 6. MARCACIÓN GPS
+  // 6. GPS
   useEffect(() => {
     if (!mapInstance.current || !miUbicacion) return;
 
@@ -500,12 +522,12 @@ export default function GestionRutas() {
                 onClick={iniciarEdicionTrazo}
                 className="w-full bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-extrabold py-3 rounded-2xl shadow-sm transition"
               >
-                ✏️ Añadir Puntos / Editar Trazo
+                ✏️ Añadir Puntos sobre la Carretera
               </button>
             ) : (
               <div className="bg-amber-50 border border-amber-300 p-3 rounded-2xl space-y-2">
                 <p className="text-xs text-amber-950 font-semibold">
-                  {cargandoRuta ? '🔄 Recalculando ruta...' : '👉 Haz clic en cualquier tramo para insertar un punto donde esté más cerca.'}
+                  {cargandoRuta ? '🔄 Trazando por carretera...' : '👉 Haz clic en cualquier calle para extender el trazo por las curvas.'}
                 </p>
                 <div className="grid grid-cols-3 gap-1.5">
                   <button
@@ -538,7 +560,7 @@ export default function GestionRutas() {
         
         {dibujando && (
           <div className="absolute top-3 left-3 right-3 z-[1000] bg-slate-900/90 text-amber-400 backdrop-blur-md px-4 py-2.5 rounded-2xl text-xs font-bold text-center shadow-lg flex items-center justify-between">
-            <span>📍 Insertando Puntos por Cercanía</span>
+            <span>📍 Trazando sobre Calles y Carreteras</span>
             <button
               onClick={() => {
                 setDibujando(false);
