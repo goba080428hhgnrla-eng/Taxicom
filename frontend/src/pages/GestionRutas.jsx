@@ -16,6 +16,64 @@ const PALETA_COLORES = [
   '#84cc16', // Lima
 ];
 
+// Función auxiliar: Distancia perpendicular de un punto C al segmento A-B
+function distanciaASegmento(p, p1, p2) {
+  const x = p[0], y = p[1];
+  const x1 = p1[0], y1 = p1[1];
+  const x2 = p2[0], y2 = p2[1];
+
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+
+  if (dx === 0 && dy === 0) {
+    return Math.hypot(x - x1, y - y1);
+  }
+
+  let t = ((x - x1) * dx + (y - y1) * dy) / (dx * dx + dy * dy);
+  t = Math.max(0, Math.min(1, t));
+
+  const projX = x1 + t * dx;
+  const projY = y1 + t * dy;
+
+  return Math.hypot(x - projX, y - projY);
+}
+
+// Función principal para insertar el nuevo punto en el segmento más cercano
+function insertarEnPuntoMasCercano(listaPuntos, nuevoPunto) {
+  if (listaPuntos.length < 2) {
+    return [...listaPuntos, nuevoPunto];
+  }
+
+  let mejorIndice = listaPuntos.length; // Por defecto al final
+  let menorDistancia = Infinity;
+
+  // Evaluar cada segmento formado por p[i] y p[i+1]
+  for (let i = 0; i < listaPuntos.length - 1; i++) {
+    const dist = distanciaASegmento(nuevoPunto, listaPuntos[i], listaPuntos[i + 1]);
+    if (dist < menorDistancia) {
+      menorDistancia = dist;
+      mejorIndice = i + 1; // Insertar entre i e i+1
+    }
+  }
+
+  // Evaluar cercanía a los extremos
+  const distInicio = Math.hypot(nuevoPunto[0] - listaPuntos[0][0], nuevoPunto[1] - listaPuntos[0][1]);
+  const distFin = Math.hypot(
+    nuevoPunto[0] - listaPuntos[listaPuntos.length - 1][0],
+    nuevoPunto[1] - listaPuntos[listaPuntos.length - 1][1]
+  );
+
+  if (distInicio < menorDistancia) {
+    mejorIndice = 0; // Insertar al inicio
+  } else if (distFin < menorDistancia && menorDistancia === Infinity) {
+    mejorIndice = listaPuntos.length; // Insertar al final
+  }
+
+  const nuevaLista = [...listaPuntos];
+  nuevaLista.splice(mejorIndice, 0, nuevoPunto);
+  return nuevaLista;
+}
+
 export default function GestionRutas() {
   const [rutas, setRutas] = useState([]);
   const [rutaSeleccionada, setRutaSeleccionada] = useState(null);
@@ -65,7 +123,7 @@ export default function GestionRutas() {
     cargarRutas();
   }, []);
 
-  // 2. INICIALIZACIÓN DEL MAPA
+  // 2. INICIALIZACIÓN DEL MAPA Y CLICS
   useEffect(() => {
     if (!mapInstance.current) {
       mapInstance.current = L.map(mapRef.current, {
@@ -82,11 +140,13 @@ export default function GestionRutas() {
 
       polylinesGroupRef.current.addTo(mapInstance.current);
 
+      // EVENTO CLIC EN EL MAPA (INSERCIÓN INTELIGENTE)
       mapInstance.current.on('click', (e) => {
         setDibujando((isDibujando) => {
           if (!isDibujando) return isDibujando;
           const nuevaCoord = [e.latlng.lat, e.latlng.lng];
-          setPuntosClave((prev) => [...prev, nuevaCoord]);
+          
+          setPuntosClave((prev) => insertarEnPuntoMasCercano(prev, nuevaCoord));
           return isDibujando;
         });
       });
@@ -169,15 +229,18 @@ export default function GestionRutas() {
         polylinesGroupRef.current.addLayer(polyline);
       }
 
-      // Dibujar marcadores editables
-      puntosClave.forEach((punto) => {
+      // Dibujar marcadores
+      puntosClave.forEach((punto, idx) => {
         const marker = L.circleMarker(punto, {
           radius: 7,
           color: '#0f172a',
           fillColor: '#fbbf24',
           fillOpacity: 1,
           weight: 3,
-        }).addTo(mapInstance.current);
+        })
+          .bindTooltip(`${idx + 1}`, { permanent: true, direction: 'center', className: 'bg-transparent border-0 font-bold text-[10px]' })
+          .addTo(mapInstance.current);
+
         markersRef.current.push(marker);
       });
       return;
@@ -309,7 +372,6 @@ export default function GestionRutas() {
     }
   };
 
-  // INICIAR EDICIÓN MANTENIENDO EL TRAZO EXISTENTE
   const iniciarEdicionTrazo = () => {
     if (!rutaSeleccionada) return;
     const trazoExistente = rutaSeleccionada.trazado || [];
@@ -443,7 +505,7 @@ export default function GestionRutas() {
             ) : (
               <div className="bg-amber-50 border border-amber-300 p-3 rounded-2xl space-y-2">
                 <p className="text-xs text-amber-950 font-semibold">
-                  {cargandoRuta ? '🔄 Recalculando ruta...' : '👉 Haz clic en el mapa para añadir más puntos a la ruta.'}
+                  {cargandoRuta ? '🔄 Recalculando ruta...' : '👉 Haz clic en cualquier tramo para insertar un punto donde esté más cerca.'}
                 </p>
                 <div className="grid grid-cols-3 gap-1.5">
                   <button
@@ -476,7 +538,7 @@ export default function GestionRutas() {
         
         {dibujando && (
           <div className="absolute top-3 left-3 right-3 z-[1000] bg-slate-900/90 text-amber-400 backdrop-blur-md px-4 py-2.5 rounded-2xl text-xs font-bold text-center shadow-lg flex items-center justify-between">
-            <span>📍 Editando/Agregando Puntos a la Ruta</span>
+            <span>📍 Insertando Puntos por Cercanía</span>
             <button
               onClick={() => {
                 setDibujando(false);
