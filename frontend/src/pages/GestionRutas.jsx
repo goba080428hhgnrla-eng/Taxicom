@@ -3,7 +3,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import { apiFetch } from '../api';
 
-// Coordenadas de Villa del Carbón
 const VILLA_DEL_CARBON = [19.727, -99.508];
 
 export default function GestionRutas() {
@@ -12,9 +11,9 @@ export default function GestionRutas() {
   const [rutaSeleccionada, setRutaSeleccionada] = useState(null);
   const [nombreNuevaRuta, setNombreNuevaRuta] = useState('');
   
-  // Puntos clave seleccionados por el Administrador (Waypoints)
+  // Puntos marcados en el mapa
   const [puntosClave, setPuntosClave] = useState([]);
-  // Trazado detallado generado por el motor de carreteras (OSRM)
+  // Trazado resultante ajustado a carreteras (OSRM)
   const [trazadoCarretera, setTrazadoCarretera] = useState([]);
   
   const [dibujando, setDibujando] = useState(false);
@@ -30,26 +29,32 @@ export default function GestionRutas() {
   const cargarRutas = () => {
     apiFetch('/api/v1/admin/rutas/')
       .then((res) => res.json())
-      .then((data) => setRutas(data.rutas || []));
+      .then((data) => setRutas(data.rutas || []))
+      .catch((err) => console.error("Error cargando rutas:", err));
   };
 
   const cargarChoferes = () => {
     apiFetch('/api/v1/admin/roles/')
       .then((res) => res.json())
-      .then((data) => setChoferes(data.choferes || []));
+      .then((data) => setChoferes(data.choferes || []))
+      .catch((err) => console.error("Error cargando choferes:", err));
   };
 
-  // 1. Inicializar Mapa en Villa del Carbón y rastreo GPS
+  // 1. Inicializar Mapa Leaflet y Geolocalización
   useEffect(() => {
     if (!mapInstance.current) {
-      mapInstance.current = L.map(mapRef.current).setView(VILLA_DEL_CARBON, 14);
+      mapInstance.current = L.map(mapRef.current, {
+        zoomControl: false // Los controles de zoom se manejan mejor de forma personalizada en móvil
+      }).setView(VILLA_DEL_CARBON, 14);
+
+      L.control.zoom({ position: 'bottomright' }).addTo(mapInstance.current);
 
       L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
         attribution: '© OpenStreetMap © CARTO',
         maxZoom: 19,
       }).addTo(mapInstance.current);
 
-      // Evento de clic en el mapa para ir agregando puntos
+      // Listener para añadir puntos táctiles / clics
       mapInstance.current.on('click', (e) => {
         setDibujando((isDibujando) => {
           if (!isDibujando) return isDibujando;
@@ -60,7 +65,6 @@ export default function GestionRutas() {
       });
     }
 
-    // Geolocalización del dispositivo
     if ('geolocation' in navigator) {
       const watchId = navigator.geolocation.watchPosition(
         (pos) => setMiUbicacion([pos.coords.latitude, pos.coords.longitude]),
@@ -74,7 +78,7 @@ export default function GestionRutas() {
     cargarChoferes();
   }, []);
 
-  // 2. Calcular ruta sobre carreteras con OSRM cuando cambian los puntos clave
+  // 2. Trazo por carretera con OSRM
   useEffect(() => {
     if (puntosClave.length < 2) {
       setTrazadoCarretera(puntosClave);
@@ -82,7 +86,6 @@ export default function GestionRutas() {
     }
 
     setCargandoRuta(true);
-    // Convertir de [lat, lng] a "lng,lat" para OSRM
     const coordsString = puntosClave.map((pt) => `${pt[1]},${pt[0]}`).join(';');
     const url = `https://router.project-osrm.org/route/v1/driving/${coordsString}?overview=full&geometries=geojson`;
 
@@ -90,25 +93,20 @@ export default function GestionRutas() {
       .then((res) => res.json())
       .then((data) => {
         if (data.routes && data.routes.length > 0) {
-          // Extraer las coordenadas y pasarlas a [lat, lng]
           const routeCoords = data.routes[0].geometry.coordinates.map((c) => [c[1], c[0]]);
           setTrazadoCarretera(routeCoords);
         } else {
           setTrazadoCarretera(puntosClave);
         }
       })
-      .catch((err) => {
-        console.error('Error calculando ruta por carreteras:', err);
-        setTrazadoCarretera(puntosClave);
-      })
+      .catch(() => setTrazadoCarretera(puntosClave))
       .finally(() => setCargandoRuta(false));
   }, [puntosClave]);
 
-  // 3. Renderizar el trazado y marcadores de puntos clave en el mapa
+  // 3. Pintar en el mapa
   useEffect(() => {
     if (!mapInstance.current) return;
 
-    // Limpiar capa previa
     if (polylineRef.current) {
       mapInstance.current.removeLayer(polylineRef.current);
       polylineRef.current = null;
@@ -116,32 +114,28 @@ export default function GestionRutas() {
     markersRef.current.forEach((m) => mapInstance.current.removeLayer(m));
     markersRef.current = [];
 
-    // Pintar la línea ajustada a calles/carreteras
     if (trazadoCarretera.length > 0) {
       polylineRef.current = L.polyline(trazadoCarretera, {
-        color: '#d97706',
+        color: '#f59e0b',
         weight: 6,
-        opacity: 0.85,
-        lineJoin: 'round',
+        opacity: 0.9,
+        lineCap: 'round',
       }).addTo(mapInstance.current);
     }
 
-    // Pintar los marcadores de los clics (puntos clave)
     puntosClave.forEach((punto, index) => {
       const marker = L.circleMarker(punto, {
-        radius: 7,
+        radius: 8,
         color: '#0f172a',
         fillColor: '#fbbf24',
         fillOpacity: 1,
-        weight: 2,
-      })
-        .addTo(mapInstance.current)
-        .bindTooltip(`Punto ${index + 1}`, { permanent: false });
+        weight: 3,
+      }).addTo(mapInstance.current);
       markersRef.current.push(marker);
     });
   }, [trazadoCarretera, puntosClave]);
 
-  // 4. Marcador para la ubicación actual del dispositivo
+  // 4. Marcador GPS de tu ubicación
   useEffect(() => {
     if (!mapInstance.current || !miUbicacion) return;
 
@@ -150,9 +144,9 @@ export default function GestionRutas() {
     } else {
       const miIcono = L.divIcon({
         className: 'mi-ubicacion-icon',
-        html: `<div style="background-color: #2563eb; width: 14px; height: 14px; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 8px rgba(0,0,0,0.4);"></div>`,
-        iconSize: [14, 14],
-        iconAnchor: [7, 7],
+        html: `<div style="background-color: #2563eb; width: 16px; height: 16px; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 10px rgba(0,0,0,0.5);"></div>`,
+        iconSize: [16, 16],
+        iconAnchor: [8, 8],
       });
 
       miUbicacionMarkerRef.current = L.marker(miUbicacion, { icon: miIcono })
@@ -161,8 +155,16 @@ export default function GestionRutas() {
     }
   }, [miUbicacion]);
 
-  // Funciones de Control
-  const centrarEnVillaDelCarbon = () => {
+  // Funciones de acción
+  const centrarEnMiUbicacion = () => {
+    if (miUbicacion && mapInstance.current) {
+      mapInstance.current.flyTo(miUbicacion, 16);
+    } else {
+      alert('Obteniendo tu señal GPS...');
+    }
+  };
+
+  const centrarEnVilla = () => {
     if (mapInstance.current) {
       mapInstance.current.flyTo(VILLA_DEL_CARBON, 14);
     }
@@ -171,11 +173,11 @@ export default function GestionRutas() {
   const seleccionarRuta = (ruta) => {
     setRutaSeleccionada(ruta);
     setTrazadoCarretera(ruta.trazado || []);
-    setPuntosClave([]); // Se reinician puntos temporales de edición
+    setPuntosClave([]);
     setDibujando(false);
 
     if (ruta.trazado?.length > 0 && mapInstance.current) {
-      mapInstance.current.fitBounds(ruta.trazado, { padding: [40, 40] });
+      mapInstance.current.fitBounds(ruta.trazado, { padding: [30, 30] });
     }
   };
 
@@ -187,97 +189,66 @@ export default function GestionRutas() {
       method: 'POST',
       body: JSON.stringify({ nombre: nombreNuevaRuta, trazado: [] }),
     });
-    const nueva = await res.json();
-    setNombreNuevaRuta('');
-    cargarRutas();
-    
-    // Activar modo dibujo para la nueva ruta creada
-    setRutaSeleccionada(nueva);
-    setPuntosClave([]);
-    setTrazadoCarretera([]);
-    setDibujando(true);
+
+    if (res.ok) {
+      const nueva = await res.json();
+      setNombreNuevaRuta('');
+      cargarRutas();
+      setRutaSeleccionada(nueva);
+      setPuntosClave([]);
+      setTrazadoCarretera([]);
+      setDibujando(true);
+    } else {
+      alert('Error al crear la ruta en el servidor.');
+    }
   };
 
   const guardarTrazo = async () => {
     if (!rutaSeleccionada) return;
-    await apiFetch(`/api/v1/admin/rutas/${rutaSeleccionada.id}/`, {
+    const res = await apiFetch(`/api/v1/admin/rutas/${rutaSeleccionada.id}/`, {
       method: 'PATCH',
       body: JSON.stringify({ trazado: trazadoCarretera }),
     });
-    setDibujando(false);
-    setPuntosClave([]);
-    cargarRutas();
-  };
-
-  const deshacerPunto = () => {
-    setPuntosClave((prev) => prev.slice(0, -1));
-  };
-
-  const limpiarTrazo = () => {
-    setPuntosClave([]);
-    setTrazadoCarretera([]);
-  };
-
-  const eliminarRuta = async (rutaId) => {
-    if (!confirm('¿Deseas eliminar esta ruta?')) return;
-    await apiFetch(`/api/v1/admin/rutas/${rutaId}/`, { method: 'DELETE' });
-    if (rutaSeleccionada?.id === rutaId) {
-      setRutaSeleccionada(null);
+    if (res.ok) {
+      setDibujando(false);
       setPuntosClave([]);
-      setTrazadoCarretera([]);
+      cargarRutas();
     }
-    cargarRutas();
   };
 
-  const agregarChofer = async (choferId) => {
-    if (!rutaSeleccionada || !choferId) return;
-    const res = await apiFetch(`/api/v1/admin/rutas/${rutaSeleccionada.id}/agregar-chofer/`, {
-      method: 'POST',
-      body: JSON.stringify({ chofer_id: choferId }),
-    });
-    const actualizada = await res.json();
-    setRutaSeleccionada(actualizada);
-    cargarRutas();
-  };
-
-  const quitarChofer = async (choferId) => {
-    if (!rutaSeleccionada) return;
-    const res = await apiFetch(`/api/v1/admin/rutas/${rutaSeleccionada.id}/quitar-chofer/`, {
-      method: 'POST',
-      body: JSON.stringify({ chofer_id: choferId }),
-    });
-    const actualizada = await res.json();
-    setRutaSeleccionada(actualizada);
-    cargarRutas();
+  const activarModoDibujo = () => {
+    setDibujando(true);
+    setPuntosClave([]);
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 p-6 max-w-7xl mx-auto font-sans antialiased">
-      {/* Panel Izquierdo de Gestión */}
-      <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 h-[680px] flex flex-col">
-        <h2 className="text-lg font-bold text-slate-900 mb-4">Rutas en Villa del Carbón</h2>
+    <div className="flex flex-col lg:grid lg:grid-cols-4 gap-4 p-3 md:p-6 max-w-7xl mx-auto font-sans antialiased min-h-screen">
+      
+      {/* PANEL DE CONTROL (Adaptable a celular) */}
+      <div className="order-2 lg:order-1 bg-white p-4 md:p-6 rounded-3xl shadow-sm border border-slate-200 flex flex-col max-h-[500px] lg:max-h-[700px] overflow-y-auto">
+        <h2 className="text-base font-bold text-slate-900 mb-3">Rutas - Villa del Carbón</h2>
 
-        {/* Crear Nueva Ruta */}
+        {/* Crear Ruta */}
         <form onSubmit={crearRuta} className="flex gap-2 mb-4">
           <input
             type="text"
-            placeholder="Ej. Ruta Centro - San Martín"
+            placeholder="Nombre nueva ruta"
             value={nombreNuevaRuta}
             onChange={(e) => setNombreNuevaRuta(e.target.value)}
             className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
           />
-          <button type="submit" className="bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-sm px-4 rounded-xl transition">
+          <button type="submit" className="bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-sm px-4 rounded-xl shrink-0">
             +
           </button>
         </form>
 
         {/* Lista de Rutas */}
-        <div className="space-y-2 overflow-y-auto flex-1 pr-1">
+        <div className="space-y-2 overflow-y-auto flex-1 mb-4">
           {rutas.map((r) => (
             <div
               key={r.id}
               onClick={() => seleccionarRuta(r)}
-              className={`p-3.5 rounded-2xl border cursor-pointer transition ${
+              className={`p-3 rounded-2xl border cursor-pointer transition ${
                 rutaSeleccionada?.id === r.id
                   ? 'bg-slate-900 text-white border-slate-900 shadow-md'
                   : 'bg-slate-50 border-slate-200 hover:border-amber-300'
@@ -285,92 +256,66 @@ export default function GestionRutas() {
             >
               <div className="flex items-center justify-between">
                 <p className="font-bold text-sm">{r.nombre}</p>
-                <button
-                  onClick={(e) => { e.stopPropagation(); eliminarRuta(r.id); }}
-                  className="text-xs text-red-400 hover:text-red-500 p-1"
-                >
-                  ✕
-                </button>
+                <span className="text-[10px] bg-amber-500 text-slate-950 font-extrabold px-2 py-0.5 rounded-full">
+                  {(r.trazado || []).length > 0 ? 'Trazada' : 'Sin trazo'}
+                </span>
               </div>
               <p className="text-xs opacity-75 mt-1">
-                {r.choferes_asignados?.length || 0} chofer(es) asignados
+                {r.choferes_asignados?.length || 0} choferes asignados
               </p>
-              <p className="text-[11px] opacity-50">{(r.trazado || []).length} puntos en carretera</p>
             </div>
           ))}
         </div>
 
-        {/* Detalles y Controles de Edición de la Ruta Seleccionada */}
+        {/* Panel de la Ruta Seleccionada */}
         {rutaSeleccionada && (
-          <div className="pt-4 mt-4 border-t border-slate-100 space-y-3">
-            <div>
-              <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                Choferes Asignados ({rutaSeleccionada.choferes_asignados?.length || 0})
-              </label>
-              <div className="space-y-1.5 mt-1.5 max-h-24 overflow-y-auto">
-                {(rutaSeleccionada.choferes_asignados || []).map((c) => (
-                  <div key={c.id} className="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5">
-                    <span className="text-xs font-semibold text-slate-800">{c.nombre}</span>
-                    <button
-                      onClick={() => quitarChofer(c.id)}
-                      className="text-xs text-red-500 hover:text-red-700"
-                    >
-                      Quitar
-                    </button>
-                  </div>
-                ))}
-              </div>
-
-              <select
-                value=""
-                onChange={(e) => e.target.value && agregarChofer(Number(e.target.value))}
-                className="w-full mt-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs"
-              >
-                <option value="">+ Asignar Chofer</option>
-                {choferes
-                  .filter((c) => !(rutaSeleccionada.choferes_asignados || []).some((a) => a.id === c.id))
-                  .map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.perfil.nombre} {c.perfil.apellido}
-                    </option>
-                  ))}
-              </select>
-            </div>
-
-            {/* Panel dinámico para Dibujar / Modificar Trazado */}
-            {!dibujando ? (
+          <div className="pt-3 border-t border-slate-200 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-slate-500 uppercase">Ruta: {rutaSeleccionada.nombre}</span>
               <button
                 onClick={() => {
-                  setDibujando(true);
-                  setPuntosClave([]);
+                  if (confirm('¿Eliminar esta ruta?')) {
+                    apiFetch(`/api/v1/admin/rutas/${rutaSeleccionada.id}/`, { method: 'DELETE' }).then(() => {
+                      setRutaSeleccionada(null);
+                      cargarRutas();
+                    });
+                  }
                 }}
-                className="w-full bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold py-2.5 rounded-xl transition"
+                className="text-xs text-red-500 font-semibold"
               >
-                ✏️ Dibujar / Modificar Trazado
+                Eliminar
+              </button>
+            </div>
+
+            {/* Botón Principal para comenzar a Dibujar */}
+            {!dibujando ? (
+              <button
+                onClick={activarModoDibujo}
+                className="w-full bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-extrabold py-3 rounded-2xl shadow-sm transition"
+              >
+                ✏️ Trazar / Editar en Mapa
               </button>
             ) : (
-              <div className="bg-amber-50 border border-amber-200 p-3 rounded-2xl space-y-2">
-                <p className="text-xs text-amber-900 font-medium">
-                  {cargandoRuta
-                    ? 'Calculando ruta por carreteras...'
-                    : 'Haz clic en las carreteras del mapa por donde pasará el colectivo.'}
+              <div className="bg-amber-50 border border-amber-300 p-3 rounded-2xl space-y-2">
+                <p className="text-xs text-amber-950 font-semibold">
+                  {cargandoRuta ? '🔄 Trazando carretera...' : '👉 Toca las carreteras en el mapa para ir marcando el camino.'}
                 </p>
-                <div className="flex gap-1.5">
+                <div className="grid grid-cols-3 gap-1.5">
                   <button
-                    onClick={deshacerPunto}
-                    className="flex-1 bg-white border border-slate-200 text-slate-700 text-xs font-semibold py-1.5 rounded-lg hover:bg-slate-50"
+                    onClick={() => setPuntosClave((prev) => prev.slice(0, -1))}
+                    className="bg-white border border-slate-200 text-slate-800 text-xs font-bold py-2 rounded-xl"
                   >
                     Deshacer
                   </button>
                   <button
-                    onClick={limpiarTrazo}
-                    className="flex-1 bg-white border border-slate-200 text-slate-700 text-xs font-semibold py-1.5 rounded-lg hover:bg-slate-50"
+                    onClick={() => setPuntosClave([])}
+                    className="bg-white border border-slate-200 text-slate-800 text-xs font-bold py-2 rounded-xl"
                   >
                     Limpiar
                   </button>
                   <button
                     onClick={guardarTrazo}
-                    className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold py-1.5 rounded-lg"
+                    className="bg-emerald-600 text-white text-xs font-bold py-2 rounded-xl shadow-sm"
                   >
                     Guardar
                   </button>
@@ -381,18 +326,42 @@ export default function GestionRutas() {
         )}
       </div>
 
-      {/* Contenedor del Mapa */}
-      <div className="lg:col-span-3 bg-white rounded-3xl shadow-sm border border-slate-200 relative h-[680px] overflow-hidden">
-        <div className="absolute top-4 right-4 z-[1000] flex gap-2">
+      {/* CONTENEDOR DEL MAPA (Optimizado Móvil) */}
+      <div className="order-1 lg:order-2 lg:col-span-3 bg-white rounded-3xl shadow-sm border border-slate-200 relative h-[450px] md:h-[600px] lg:h-[700px] overflow-hidden">
+        
+        {/* Banner Superior cuando está activado el modo dibujo */}
+        {dibujando && (
+          <div className="absolute top-3 left-3 right-3 z-[1000] bg-slate-900/90 text-amber-400 backdrop-blur-md px-4 py-2.5 rounded-2xl text-xs font-bold text-center shadow-lg flex items-center justify-between">
+            <span>📍 Modo Dibujo Activo (Toca el mapa)</span>
+            <button
+              onClick={() => setDibujando(false)}
+              className="bg-slate-800 text-white px-2.5 py-1 rounded-xl text-[10px]"
+            >
+              Cancelar
+            </button>
+          </div>
+        )}
+
+        {/* Botones Flotantes de Navegación y GPS */}
+        <div className="absolute bottom-4 left-4 z-[1000] flex flex-col gap-2">
           <button
-            onClick={centrarEnVillaDelCarbon}
-            className="bg-white text-slate-800 font-bold text-xs px-3 py-2 rounded-xl shadow-md border border-slate-200 hover:bg-slate-50 flex items-center gap-1.5"
+            onClick={centrarEnMiUbicacion}
+            className="bg-white text-slate-900 font-bold text-xs px-3.5 py-2.5 rounded-2xl shadow-lg border border-slate-200 hover:bg-slate-50 flex items-center gap-2 active:scale-95 transition"
+          >
+            🎯 Mi Ubicación
+          </button>
+          <button
+            onClick={centrarEnVilla}
+            className="bg-slate-900 text-white font-bold text-xs px-3.5 py-2.5 rounded-2xl shadow-lg border border-slate-800 flex items-center gap-2 active:scale-95 transition"
           >
             ⛰️ Villa del Carbón
           </button>
         </div>
+
+        {/* Instancia Leaflet */}
         <div ref={mapRef} className="w-full h-full z-0" />
       </div>
+
     </div>
   );
 }

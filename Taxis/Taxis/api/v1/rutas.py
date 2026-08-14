@@ -31,24 +31,33 @@ def _distancia_km(lat1, lng1, lat2, lng2):
     return 2 * R * math.asin(math.sqrt(a))
 
 
-def _ruta_a_dict(ruta: Ruta) -> dict:
-    choferes = ruta.choferes.select_related("perfil", "vehiculo").all()
+# Taxis/Taxis/api/v1/rutas.py
+
+def _ruta_a_dict(ruta):
+    # Intentar obtener los choferes de la relación inversa o ManyToMany
+    if hasattr(ruta, 'choferes_asignados'):
+        choferes_qs = ruta.choferes_asignados.all()
+    elif hasattr(ruta, 'choferes'):
+        choferes_qs = ruta.choferes.all()
+    elif hasattr(ruta, 'chofer_set'):
+        choferes_qs = ruta.chofer_set.all()
+    else:
+        choferes_qs = []
+
+    choferes_data = []
+    for chofer in choferes_qs:
+        choferes_data.append({
+            "id": chofer.id,
+            "nombre": getattr(getattr(chofer, 'perfil', None), 'nombre', str(chofer)),
+            "estado_display": getattr(chofer, 'estado', 'Inactivo')
+        })
+
     return {
         "id": ruta.id,
         "nombre": ruta.nombre,
-        "descripcion": ruta.descripcion or "",
+        "descripcion": getattr(ruta, 'descripcion', ''),
         "trazado": ruta.trazado or [],
-        "choferes_asignados": [
-            {
-                "id": c.id,
-                "nombre": f"{c.perfil.nombre or ''} {c.perfil.apellido or ''}".strip(),
-                "estado": c.estado,
-                "estado_display": c.get_estado_display(),
-                "asientos_disponibles": c.asientos_disponibles,
-                "tiene_cajuela": c.vehiculo.tiene_cajuela if c.vehiculo else False,
-            }
-            for c in choferes
-        ],
+        "choferes_asignados": choferes_data,
     }
 
 
