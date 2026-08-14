@@ -40,7 +40,7 @@ export default function GestionRutas() {
   const markersRef = useRef([]);
   const miUbicacionMarkerRef = useRef(null);
 
-  // 1. CARGA INDEPENDIENTE DE RUTAS DESDE LA API (Se ejecuta al instante al entrar)
+  // 1. CARGA INDEPENDIENTE DE RUTAS DESDE LA API
   const cargarRutas = async () => {
     setCargandoLista(true);
     setErrorCarga(null);
@@ -49,7 +49,6 @@ export default function GestionRutas() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       
-      // Soporta respuesta directa en Array [...] o dentro de { rutas: [...] }
       const listaRutas = Array.isArray(data) ? data : (data.rutas || []);
       setRutas(listaRutas);
       return listaRutas;
@@ -93,7 +92,6 @@ export default function GestionRutas() {
       });
     }
 
-    // Geolocalización
     if ('geolocation' in navigator) {
       const watchId = navigator.geolocation.watchPosition(
         (pos) => setMiUbicacion([pos.coords.latitude, pos.coords.longitude]),
@@ -104,7 +102,7 @@ export default function GestionRutas() {
     }
   }, []);
 
-  // 3. CAMBIO DE CAPAS DE MAPA
+  // 3. CAMBIO DE CAPAS
   const alternarCapas = () => {
     if (!mapInstance.current || !tileLayerRef.current) return;
     mapInstance.current.removeLayer(tileLayerRef.current);
@@ -125,7 +123,7 @@ export default function GestionRutas() {
     setCapaSatelite(!capaSatelite);
   };
 
-  // 4. MOTOR OSRM DE TRAZADO
+  // 4. MOTOR OSRM DE TRAZADO (Cálculo de trayectoria)
   useEffect(() => {
     if (puntosClave.length < 2) {
       setTrazadoCarretera(puntosClave);
@@ -150,7 +148,7 @@ export default function GestionRutas() {
       .finally(() => setCargandoRuta(false));
   }, [puntosClave]);
 
-  // 5. PINTAR RUTAS EN EL MAPA AUTOMÁTICAMENTE CUANDO LLEGAN DE LA API
+  // 5. PINTAR RUTAS Y MARCADORES EN EL MAPA
   useEffect(() => {
     if (!mapInstance.current) return;
 
@@ -158,7 +156,7 @@ export default function GestionRutas() {
     markersRef.current.forEach((m) => mapInstance.current.removeLayer(m));
     markersRef.current = [];
 
-    // CASO A: MODO DIBUJO
+    // MODO DIBUJO/EDICIÓN
     if (dibujando) {
       if (trazadoCarretera.length > 0) {
         const polyline = L.polyline(trazadoCarretera, {
@@ -171,6 +169,7 @@ export default function GestionRutas() {
         polylinesGroupRef.current.addLayer(polyline);
       }
 
+      // Dibujar marcadores editables
       puntosClave.forEach((punto) => {
         const marker = L.circleMarker(punto, {
           radius: 7,
@@ -184,7 +183,7 @@ export default function GestionRutas() {
       return;
     }
 
-    // CASO B: MOSTRAR TODAS LAS RUTAS
+    // MOSTRAR TODAS LAS RUTAS
     if (verTodas) {
       rutas.forEach((ruta, index) => {
         if (ruta.trazado && ruta.trazado.length > 0) {
@@ -209,14 +208,13 @@ export default function GestionRutas() {
         }
       });
 
-      // Enfocar mapa sobre las rutas si existen
       if (rutas.length > 0 && polylinesGroupRef.current.getBounds().isValid()) {
         mapInstance.current.fitBounds(polylinesGroupRef.current.getBounds(), { padding: [40, 40] });
       }
       return;
     }
 
-    // CASO C: MOSTRAR SOLO LA RUTA SELECCIONADA
+    // MOSTRAR SÓLO LA RUTA SELECCIONADA
     if (rutaSeleccionada && rutaSeleccionada.trazado?.length > 0) {
       const indexRuta = rutas.findIndex((r) => r.id === rutaSeleccionada.id);
       const colorRuta = PALETA_COLORES[indexRuta % PALETA_COLORES.length] || '#2563eb';
@@ -311,6 +309,15 @@ export default function GestionRutas() {
     }
   };
 
+  // INICIAR EDICIÓN MANTENIENDO EL TRAZO EXISTENTE
+  const iniciarEdicionTrazo = () => {
+    if (!rutaSeleccionada) return;
+    const trazoExistente = rutaSeleccionada.trazado || [];
+    setPuntosClave(trazoExistente);
+    setTrazadoCarretera(trazoExistente);
+    setDibujando(true);
+  };
+
   const guardarTrazo = async () => {
     if (!rutaSeleccionada) return;
     const res = await apiFetch(`/api/v1/admin/rutas/${rutaSeleccionada.id}/`, {
@@ -357,7 +364,7 @@ export default function GestionRutas() {
           👁️ Ver Todas las Rutas en el Mapa
         </button>
 
-        {/* ESTADOS DE CARGA Y LISTA */}
+        {/* LISTA DE RUTAS */}
         {cargandoLista ? (
           <div className="py-8 text-center text-xs text-slate-400 font-medium animate-pulse">
             Cargando rutas registradas...
@@ -371,7 +378,7 @@ export default function GestionRutas() {
           </div>
         ) : rutas.length === 0 ? (
           <div className="py-8 text-center text-xs text-slate-400">
-            No hay rutas registradas aún. Crea la primera arriba.
+            No hay rutas registradas aún.
           </div>
         ) : (
           <div className="space-y-2 overflow-y-auto flex-1 mb-3">
@@ -405,7 +412,7 @@ export default function GestionRutas() {
           </div>
         )}
 
-        {/* Edición de Ruta Seleccionada */}
+        {/* EDICIÓN DE RUTA SELECCIONADA */}
         {!verTodas && rutaSeleccionada && (
           <div className="pt-3 border-t border-slate-200 space-y-3">
             <div className="flex items-center justify-between">
@@ -428,18 +435,15 @@ export default function GestionRutas() {
 
             {!dibujando ? (
               <button
-                onClick={() => {
-                  setDibujando(true);
-                  setPuntosClave([]);
-                }}
+                onClick={iniciarEdicionTrazo}
                 className="w-full bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-extrabold py-3 rounded-2xl shadow-sm transition"
               >
-                ✏️ Editar / Redibujar Trazo
+                ✏️ Añadir Puntos / Editar Trazo
               </button>
             ) : (
               <div className="bg-amber-50 border border-amber-300 p-3 rounded-2xl space-y-2">
                 <p className="text-xs text-amber-950 font-semibold">
-                  {cargandoRuta ? '🔄 Calculando carretera...' : '👉 Toca las calles por donde pasará esta ruta.'}
+                  {cargandoRuta ? '🔄 Recalculando ruta...' : '👉 Haz clic en el mapa para añadir más puntos a la ruta.'}
                 </p>
                 <div className="grid grid-cols-3 gap-1.5">
                   <button
@@ -472,9 +476,12 @@ export default function GestionRutas() {
         
         {dibujando && (
           <div className="absolute top-3 left-3 right-3 z-[1000] bg-slate-900/90 text-amber-400 backdrop-blur-md px-4 py-2.5 rounded-2xl text-xs font-bold text-center shadow-lg flex items-center justify-between">
-            <span>📍 Dibujando Ruta Activa</span>
+            <span>📍 Editando/Agregando Puntos a la Ruta</span>
             <button
-              onClick={() => setDibujando(false)}
+              onClick={() => {
+                setDibujando(false);
+                setPuntosClave([]);
+              }}
               className="bg-slate-800 text-white px-2.5 py-1 rounded-xl text-[10px]"
             >
               Cancelar
