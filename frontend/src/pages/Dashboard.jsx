@@ -186,7 +186,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (!mapInstance.current) {
-      mapInstance.current = L.map(mapRef.current, { zoomControl: false }).setView([16.753, -93.115], 13);
+      mapInstance.current = L.map(mapRef.current, { zoomControl: false }).setView([19.727, -99.508], 13);
       L.control.zoom({ position: 'bottomright' }).addTo(mapInstance.current);
       L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
         attribution: '© OpenStreetMap © CARTO',
