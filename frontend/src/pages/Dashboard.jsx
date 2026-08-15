@@ -21,6 +21,27 @@ export default function Dashboard() {
   const reconnectTimeout = useRef(null);
 
   // =========================================================
+  // HELPER PARA LLEER COORDENADAS (latitud/longitud o lat/lng)
+  // =========================================================
+  const obtenerCoordenadas = (data) => {
+    const lat = data.latitud ?? data.lat;
+    const lng = data.longitud ?? data.lng;
+    
+    if (lat === undefined || lng === undefined || lat === null || lng === null) {
+      return null;
+    }
+
+    const latFloat = parseFloat(lat);
+    const lngFloat = parseFloat(lng);
+
+    if (isNaN(latFloat) || isNaN(lngFloat) || latFloat === 0.0) {
+      return null;
+    }
+
+    return { lat: latFloat, lng: lngFloat };
+  };
+
+  // =========================================================
   // ANIMACIÓN Y ELIMINACIÓN DE MARCADORES
   // =========================================================
 
@@ -58,7 +79,7 @@ export default function Dashboard() {
   };
 
   const crearOActualizarMarcador = (id, lat, lng, nombre, auto, sketchfabId, asientos) => {
-    if (!lat || !lng || parseFloat(lat) === 0.0) return;
+    if (!lat || !lng) return;
 
     const popupContent = `
       <div style="width:240px; padding:4px; font-family:sans-serif;">
@@ -80,10 +101,10 @@ export default function Dashboard() {
     `;
 
     if (markers.current[id]) {
-      moverMarcadorFluidamente(markers.current[id], parseFloat(lat), parseFloat(lng));
+      moverMarcadorFluidamente(markers.current[id], lat, lng);
       markers.current[id].getPopup().setContent(popupContent);
     } else {
-      markers.current[id] = L.marker([parseFloat(lat), parseFloat(lng)], { icon: taxiIcon })
+      markers.current[id] = L.marker([lat, lng], { icon: taxiIcon })
         .addTo(mapInstance.current)
         .bindPopup(popupContent);
     }
@@ -94,10 +115,7 @@ export default function Dashboard() {
   // =========================================================
 
   const conectarWebSocket = () => {
-    // AJUSTA ESTA LÍNEA a donde realmente guardas el access token
-    // (localStorage, un contexto de auth, etc. — debe ser el mismo
-    // que usa apiFetch para el header Authorization).
-    const accessToken = localStorage.getItem('access_token');
+    const accessToken = localStorage.getItem('access_token') || localStorage.getItem('token');
 
     if (!accessToken) {
       console.error('No hay access token disponible, no se puede abrir el WebSocket');
@@ -119,26 +137,32 @@ export default function Dashboard() {
       const data = JSON.parse(e.data);
 
       // CASO 1: CHOFER FINALIZÓ TURNO O SE DESCONECTÓ
-      if (data.event === 'chofer_desconectado') {
+      if (data.type === 'broadcast_chofer_desconectado' || data.event === 'chofer_desconectado') {
         removerMarcador(data.chofer_id);
         setChoferes((prev) => prev.filter((c) => c.chofer_id !== data.chofer_id));
         return;
       }
 
       // CASO 2: ACTUALIZACIÓN DE UBICACIÓN
-      if (data.event === 'ubicacion_actualizada' || data.lat) {
-        crearOActualizarMarcador(
-          data.chofer_id,
-          data.lat,
-          data.lng,
-          data.nombre || 'Chofer en Ruta',
-          data.vehiculo || 'Vehículo Activo',
-          data.sketchfab_id || '',
-          data.asientos_disponibles ?? 0
-        );
+      const esBroadcastUbicacion = data.type === 'broadcast_ubicacion' || data.event === 'ubicacion_actualizada';
+      const coords = obtenerCoordenadas(data);
+
+      if ((esBroadcastUbicacion || coords) && data.chofer_id) {
+        if (coords) {
+          crearOActualizarMarcador(
+            data.chofer_id,
+            coords.lat,
+            coords.lng,
+            data.nombre || 'Chofer en Ruta',
+            data.vehiculo || 'Vehículo Activo',
+            data.sketchfab_id || '',
+            data.asientos_disponibles ?? 0
+          );
+        }
 
         setChoferes((prev) => {
           const existe = prev.some((c) => c.chofer_id === data.chofer_id);
+
           if (!existe) {
             return [
               ...prev,
@@ -147,18 +171,23 @@ export default function Dashboard() {
                 nombre: data.nombre || 'Chofer en Ruta',
                 vehiculo: data.vehiculo || 'Vehículo Activo',
                 asientos_disponibles: data.asientos_disponibles ?? 0,
-                estado: 'En Ruta',
+                lat: coords?.lat,
+                lng: coords?.lng,
+                estado: data.modalidad || 'En Ruta',
               },
             ];
           }
+
           return prev.map((c) =>
             c.chofer_id === data.chofer_id
               ? {
                   ...c,
-                  lat: data.lat,
-                  lng: data.lng,
+                  nombre: data.nombre || c.nombre,
+                  vehiculo: data.vehiculo || c.vehiculo,
+                  lat: coords ? coords.lat : c.lat,
+                  lng: coords ? coords.lng : c.lng,
                   asientos_disponibles: data.asientos_disponibles ?? c.asientos_disponibles,
-                  estado: 'En Ruta',
+                  estado: data.modalidad || 'En Ruta',
                 }
               : c
           );
@@ -169,9 +198,6 @@ export default function Dashboard() {
     socket.onclose = (e) => {
       setWsStatus(`Desconectado (code ${e.code})`);
 
-      // code 4001 = token ausente/ inválido -> no tiene caso reintentar
-      // solo, hay que revisar el token. Cualquier otro código sí
-      // reintenta la conexión.
       if (e.code !== 4001) {
         reconnectTimeout.current = setTimeout(conectarWebSocket, 3000);
       } else {
@@ -193,26 +219,31 @@ export default function Dashboard() {
       }).addTo(mapInstance.current);
     }
 
-    // CARGA INICIAL POR API
+    // CARGA INICIAL POR API REST
     apiFetch('/api/v1/admin/choferes/mapa/')
       .then((res) => res.json())
       .then((data) => {
-        setChoferes(data.choferes || []);
-        data.choferes?.forEach((c) => {
-          crearOActualizarMarcador(
-            c.chofer_id,
-            c.lat,
-            c.lng,
-            c.nombre,
-            c.vehiculo,
-            c.sketchfab_id,
-            c.asientos_disponibles
-          );
+        const listaChoferes = data.choferes || [];
+        setChoferes(listaChoferes);
+
+        listaChoferes.forEach((c) => {
+          const coords = obtenerCoordenadas(c);
+          if (coords) {
+            crearOActualizarMarcador(
+              c.chofer_id,
+              coords.lat,
+              coords.lng,
+              c.nombre,
+              c.vehiculo,
+              c.sketchfab_id,
+              c.asientos_disponibles
+            );
+          }
         });
       })
       .catch((err) => console.error('Error cargando flota:', err));
 
-    // WEBSOCKET
+    // INICIAR WEBSOCKET
     conectarWebSocket();
 
     return () => {
@@ -253,7 +284,7 @@ export default function Dashboard() {
               <button
                 key={c.chofer_id}
                 onClick={() => seleccionarConductor(c)}
-                className={`w-full text-left p-3 mb-2 rounded-xl border ${
+                className={`w-full text-left p-3 mb-2 rounded-xl border transition-all ${
                   selectedDriver === c.chofer_id ? 'bg-slate-900 text-white' : 'bg-white hover:bg-slate-50'
                 }`}
               >
@@ -262,6 +293,11 @@ export default function Dashboard() {
                 <div className="text-xs mt-2">Free seats: {c.asientos_disponibles}</div>
               </button>
             ))}
+            {choferes.length === 0 && (
+              <p className="text-xs text-slate-400 text-center mt-8">
+                No hay choferes activos en este momento.
+              </p>
+            )}
           </aside>
 
           <section className="col-span-9 relative bg-white rounded-2xl border border-slate-200 overflow-hidden min-h-[500px]">
