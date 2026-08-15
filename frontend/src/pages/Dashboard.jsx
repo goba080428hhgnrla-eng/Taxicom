@@ -22,24 +22,23 @@ export default function Dashboard() {
 
   // Helper para validar y extraer coordenadas
   const obtenerCoordenadas = (data) => {
-    const lat = data.latitud ?? data.lat;
-    const lng = data.longitud ?? data.lng;
+  // Leemos latitud/longitud que viene del backend de Django
+  const lat = data.latitud ?? data.lat;
+  const lng = data.longitud ?? data.lng;
 
-    // Solo descartamos si es null o undefined
-    if (lat === undefined || lng === undefined || lat === null || lng === null) {
-      return null;
-    }
+  if (lat === undefined || lng === undefined || lat === null || lng === null) {
+    return null;
+  }
 
-    const latFloat = parseFloat(lat);
-    const lngFloat = parseFloat(lng);
+  const latFloat = parseFloat(lat);
+  const lngFloat = parseFloat(lng);
 
-    // Solamente validamos que sea un número real (NaN)
-    if (isNaN(latFloat) || isNaN(lngFloat)) {
-      return null;
-    }
+  if (isNaN(latFloat) || isNaN(lngFloat)) {
+    return null;
+  }
 
-    return { lat: latFloat, lng: lngFloat };
-  };
+  return { lat: latFloat, lng: lngFloat };
+};
 
   const removerMarcador = (id) => {
     if (markers.current[id]) {
@@ -125,73 +124,76 @@ export default function Dashboard() {
     };
 
     socket.onmessage = (e) => {
-      const data = JSON.parse(e.data);
+  const data = JSON.parse(e.data);
 
-      // CASO 1: DESCONEXIÓN / CHOFER INACTIVO
-      if (data.type === 'broadcast_chofer_desconectado' || data.event === 'chofer_desconectado') {
-        removerMarcador(data.chofer_id);
-        
-        // NO lo borramos de la lista, solo cambiamos su estado a Inactivo
-        setChoferes((prev) =>
-          prev.map((c) =>
-            c.chofer_id === data.chofer_id
-              ? { ...c, estado: 'Inactivo' }
-              : c
-          )
-        );
-        return;
-      }
-
-      // CASO 2: ACTUALIZACIÓN DE UBICACIÓN Y ESTADO
-      const esBroadcastUbicacion = data.type === 'broadcast_ubicacion' || data.event === 'ubicacion_actualizada';
-      const coords = obtenerCoordenadas(data);
-
-      if ((esBroadcastUbicacion || coords) && data.chofer_id) {
-        if (coords) {
-          crearOActualizarMarcador(
-            data.chofer_id,
-            coords.lat,
-            coords.lng,
-            data.nombre || 'Chofer en Ruta',
-            data.vehiculo || 'Vehículo Activo',
-            data.asientos_disponibles ?? 0
-          );
+  // 1. CHOFER DESCONECTADO
+  if (data.type === 'broadcast_chofer_desconectado' || data.event === 'chofer_desconectado') {
+    removerMarcador(data.chofer_id);
+    setChoferes((prev) =>
+      prev.map((chofer) => {
+        const idActual = chofer.chofer_id || chofer.id;
+        if (idActual === data.chofer_id) {
+          return { ...chofer, estado: 'Inactivo' };
         }
+        return chofer;
+      })
+    );
+    return;
+  }
 
-        setChoferes((prev) => {
-          const existe = prev.some((c) => c.chofer_id === data.chofer_id);
+  // 2. RECIBIR UBICACIÓN Y CREAR MARCADOR
+  const coords = obtenerCoordenadas(data);
 
-          if (!existe) {
-            return [
-              ...prev,
-              {
-                chofer_id: data.chofer_id,
-                nombre: data.nombre || 'Chofer en Ruta',
-                vehiculo: data.vehiculo || 'Vehículo Activo',
-                asientos_disponibles: data.asientos_disponibles ?? 0,
-                lat: coords?.lat,
-                lng: coords?.lng,
-                estado: data.modalidad || 'Activo',
-              },
-            ];
-          }
+  if (data.chofer_id) {
+    // Si tenemos coordenadas válidas (incluso 0,0), creamos o movemos el marcador en Leaflet
+    if (coords) {
+      crearOActualizarMarcador(
+        data.chofer_id,
+        coords.lat,
+        coords.lng,
+        data.nombre || 'Chofer Activo',
+        data.vehiculo || 'Vehículo',
+        data.asientos_disponibles ?? 0
+      );
+    }
 
-          return prev.map((c) =>
-            c.chofer_id === data.chofer_id
-              ? {
-                  ...c,
-                  nombre: data.nombre || c.nombre,
-                  vehiculo: data.vehiculo || c.vehiculo,
-                  lat: coords ? coords.lat : c.lat,
-                  lng: coords ? coords.lng : c.lng,
-                  asientos_disponibles: data.asientos_disponibles ?? c.asientos_disponibles,
-                  estado: data.modalidad || 'Activo',
-                }
-              : c
-          );
-        });
+    // Actualizamos la lista de React (Tabla / Sidebar)
+    setChoferes((prev) => {
+      const existe = prev.some((c) => (c.chofer_id || c.id) === data.chofer_id);
+
+      if (!existe) {
+        return [
+          ...prev,
+          {
+            chofer_id: data.chofer_id,
+            nombre: data.nombre || 'Chofer Activo',
+            vehiculo: data.vehiculo || 'Vehículo',
+            asientos_disponibles: data.asientos_disponibles ?? 0,
+            lat: coords ? coords.lat : 0,
+            lng: coords ? coords.lng : 0,
+            estado: data.modalidad || 'Activo',
+          },
+        ];
       }
-    };
+
+      return prev.map((c) => {
+        const idActual = c.chofer_id || c.id;
+        if (idActual === data.chofer_id) {
+          return {
+            ...c,
+            nombre: data.nombre || c.nombre,
+            vehiculo: data.vehiculo || c.vehiculo,
+            lat: coords ? coords.lat : c.lat,
+            lng: coords ? coords.lng : c.lng,
+            asientos_disponibles: data.asientos_disponibles ?? c.asientos_disponibles,
+            estado: data.modalidad || c.estado || 'Activo',
+          };
+        }
+        return c;
+      });
+    });
+  }
+};
 
     socket.onclose = (e) => {
       setWsStatus(`Desconectado (code ${e.code})`);
