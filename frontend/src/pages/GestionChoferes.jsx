@@ -16,7 +16,6 @@ export default function GestionChoferes() {
       .then((res) => res.json())
       .then((data) => {
         setPendientes(data.pendientes || []);
-        // Recibe todos los choferes registrados (activo, en_ruta, inactivo)
         setActivos(data.activos || []);
       })
       .catch((err) => console.error("Error al cargar choferes:", err));
@@ -83,7 +82,6 @@ export default function GestionChoferes() {
     }
   };
 
-  // Renderiza la etiqueta del estado según los 3 valores del modelo de Django
   const obtenerBadgeEstado = (estado, estadoDisplay) => {
     if (estado === 'en_ruta') {
       return (
@@ -103,7 +101,6 @@ export default function GestionChoferes() {
       );
     }
 
-    // Estado 'inactivo' (cuando finalizan turno en la App)
     return (
       <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-bold uppercase tracking-wider bg-slate-100 text-slate-600 border border-slate-200/60">
         <span className="w-1.5 h-1.5 rounded-full mr-1.5 bg-slate-400"></span>
@@ -255,85 +252,130 @@ export default function GestionChoferes() {
         </div>
       </div>
 
-      {/* EXPEDIENTE SLIDE-OVER */}
-{choferDetalle && (
-  <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex justify-end">
-    <div className="bg-white w-full sm:w-[480px] h-full shadow-2xl p-6 overflow-y-auto flex flex-col justify-between">
-      <div className="space-y-5">
-        
-        {/* ENCABEZADO: FOTO DE PERFIL */}
-        <div className="flex items-start justify-between border-b border-slate-100 pb-4">
-          <div className="flex items-center space-x-3">
-            {choferDetalle.perfil?.foto ? (
-              <img 
-                src={choferDetalle.perfil.foto} 
-                alt="Foto Perfil" 
-                className="w-14 h-14 rounded-2xl object-cover border border-slate-200 shadow-sm"
-              />
-            ) : (
-              <div className="w-14 h-14 rounded-2xl bg-slate-100 flex items-center justify-center text-slate-400 font-bold">
-                📷
+      {/* EXPEDIENTE SLIDE-OVER CON PREVISUALIZACIÓN DE FOTOS Y DOCUMENTOS */}
+      {choferDetalle && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex justify-end">
+          <div className="bg-white w-full sm:w-[500px] h-full shadow-2xl p-6 overflow-y-auto flex flex-col justify-between">
+            <div className="space-y-6">
+              
+              {/* ENCABEZADO Y FOTO DE PERFIL */}
+              <div className="flex items-start justify-between border-b border-slate-100 pb-5">
+                <div className="flex items-center space-x-4">
+                  {choferDetalle.perfil?.foto ? (
+                    <img 
+                      src={choferDetalle.perfil.foto} 
+                      alt="Foto Perfil" 
+                      className="w-16 h-16 rounded-2xl object-cover border-2 border-slate-100 shadow-md"
+                    />
+                  ) : (
+                    <div className="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center text-slate-400 text-xl font-bold border border-slate-200">
+                      👤
+                    </div>
+                  )}
+                  <div>
+                    <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-2.5 py-1 rounded-full uppercase tracking-wider">
+                      Expediente Digital
+                    </span>
+                    <h3 className="text-xl font-bold text-slate-900 mt-1">
+                      {choferDetalle.perfil?.nombre} {choferDetalle.perfil?.apellido}
+                    </h3>
+                    <p className="text-xs text-slate-400">Correo: {choferDetalle.perfil?.email || 'N/A'}</p>
+                    <p className="text-xs text-slate-400">Teléfono: {choferDetalle.perfil?.telefono || 'N/A'}</p>
+                  </div>
+                </div>
+                <button onClick={() => setChoferDetalle(null)} className="text-slate-400 hover:text-slate-700 font-bold text-lg">✕</button>
               </div>
-            )}
-            <div>
-              <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-2.5 py-1 rounded-full uppercase tracking-wider">
-                Expediente Digital
-              </span>
-              <h3 className="text-lg font-bold text-slate-900 mt-1">
-                {choferDetalle.perfil?.nombre} {choferDetalle.perfil?.apellido}
-              </h3>
-              <p className="text-xs text-slate-400">Chofer ID: #{choferDetalle.id}</p>
-            </div>
-          </div>
-          <button onClick={() => setChoferDetalle(null)} className="text-slate-400 hover:text-slate-700 font-bold">✕</button>
-        </div>
 
-        {/* FOTO DE LICENCIA */}
-        <div className="space-y-2">
-          <h4 className="text-[11px] font-bold uppercase text-slate-400 tracking-wider">Licencia de Conducir</h4>
-          {choferDetalle.foto_licencia ? (
-            <div className="relative group rounded-2xl overflow-hidden border border-slate-200 shadow-sm bg-slate-900">
-              <img 
-                src={choferDetalle.foto_licencia} 
-                alt="Licencia de Conducir" 
-                className="w-full h-44 object-cover group-hover:opacity-80 transition"
-              />
-              <a 
-                href={choferDetalle.foto_licencia} 
-                target="_blank" 
-                rel="noreferrer"
-                className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 bg-slate-950/60 text-white font-bold text-xs transition"
+              {/* SECCIÓN DOCUMENTACIÓN: FOTO DE PERFIL AMPLIADA */}
+              <div className="space-y-2">
+                <h4 className="text-[11px] font-bold uppercase text-slate-400 tracking-wider">Foto de Perfil del Usuario</h4>
+                {choferDetalle.perfil?.foto ? (
+                  <div className="relative group rounded-2xl overflow-hidden border border-slate-200 shadow-sm bg-slate-950">
+                    <img 
+                      src={choferDetalle.perfil.foto} 
+                      alt="Foto de perfil del Chofer" 
+                      className="w-full h-48 object-cover group-hover:opacity-85 transition"
+                    />
+                    <a 
+                      href={choferDetalle.perfil.foto} 
+                      target="_blank" 
+                      rel="noreferrer"
+                      className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 bg-slate-950/60 text-white font-bold text-xs transition"
+                    >
+                      🔍 Abrir Foto de Perfil
+                    </a>
+                  </div>
+                ) : (
+                  <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-center text-slate-500 text-xs">
+                    📷 No se adjuntó foto de perfil.
+                  </div>
+                )}
+              </div>
+
+              {/* SECCIÓN DOCUMENTACIÓN: LICENCIA DE CONDUCIR */}
+              <div className="space-y-2">
+                <h4 className="text-[11px] font-bold uppercase text-slate-400 tracking-wider">Licencia de Conducir</h4>
+                {choferDetalle.foto_licencia ? (
+                  <div className="relative group rounded-2xl overflow-hidden border border-slate-200 shadow-sm bg-slate-950">
+                    <img 
+                      src={choferDetalle.foto_licencia} 
+                      alt="Licencia de Conducir" 
+                      className="w-full h-48 object-cover group-hover:opacity-85 transition"
+                    />
+                    <a 
+                      href={choferDetalle.foto_licencia} 
+                      target="_blank" 
+                      rel="noreferrer"
+                      className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 bg-slate-950/60 text-white font-bold text-xs transition"
+                    >
+                      🔍 Abrir Documento Completo
+                    </a>
+                  </div>
+                ) : (
+                  <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-center text-amber-800 text-xs font-semibold">
+                    ⚠️ No se ha adjuntado foto de licencia de conducir.
+                  </div>
+                )}
+              </div>
+
+              {/* DATOS DEL VEHÍCULO */}
+              <div className="space-y-2">
+                <h4 className="text-[11px] font-bold uppercase text-slate-400 tracking-wider">Vehículo Asignado</h4>
+                {choferDetalle.vehiculo ? (
+                  <div className="bg-slate-900 text-white rounded-2xl p-4 space-y-2 text-xs">
+                    <div className="flex justify-between items-center">
+                      <span className="font-bold text-sm">{choferDetalle.vehiculo.marca} {choferDetalle.vehiculo.modelo}</span>
+                      <span className="bg-amber-500 text-slate-950 font-extrabold px-2.5 py-0.5 rounded-lg font-mono">
+                        {choferDetalle.vehiculo.placas}
+                      </span>
+                    </div>
+                    <div className="text-slate-400 grid grid-cols-2 gap-2 pt-1 border-t border-slate-800">
+                      <p>Año: <b className="text-slate-200">{choferDetalle.vehiculo.anio}</b></p>
+                      <p>Asientos: <b className="text-slate-200">{choferDetalle.vehiculo.total_asientos || 4}</b></p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-center text-slate-500 text-xs">
+                    Sin datos de vehículo.
+                  </div>
+                )}
+              </div>
+
+            </div>
+
+            {/* ACCIONES DEL EXPEDIENTE */}
+            <div className="pt-6 border-t border-slate-100 mt-6">
+              <button
+                onClick={() => setModalEliminar(true)}
+                className="w-full bg-red-50 hover:bg-red-100 text-red-600 border border-red-200/80 font-bold text-xs py-3 rounded-2xl transition"
               >
-                🔍 Ampliar Documento
-              </a>
+                Dar de baja por Incidencia
+              </button>
             </div>
-          ) : (
-            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-center text-amber-800 text-xs font-semibold">
-              ⚠️ No se ha adjuntado foto de licencia.
-            </div>
-          )}
-        </div>
 
-        {/* DATOS DEL VEHÍCULO */}
-        <div className="space-y-2">
-          <h4 className="text-[11px] font-bold uppercase text-slate-400 tracking-wider">Vehículo Registrado</h4>
-          {choferDetalle.vehiculo && (
-            <div className="bg-slate-900 text-white rounded-2xl p-4 space-y-2 text-xs">
-              <div className="flex justify-between items-center">
-                <span className="font-bold">{choferDetalle.vehiculo.marca} {choferDetalle.vehiculo.modelo}</span>
-                <span className="bg-amber-500 text-slate-950 font-extrabold px-2 py-0.5 rounded">
-                  {choferDetalle.vehiculo.placas}
-                </span>
-              </div>
-              <p className="text-slate-400">Año: {choferDetalle.vehiculo.anio}</p>
-            </div>
-          )}
+          </div>
         </div>
-
-      </div>
-    </div>
-  </div>
-)}
+      )}
 
       {/* MODAL DE INCIDENCIA */}
       {modalEliminar && (
