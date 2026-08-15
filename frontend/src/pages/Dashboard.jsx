@@ -25,6 +25,7 @@ export default function Dashboard() {
     const lat = data.latitud ?? data.lat;
     const lng = data.longitud ?? data.lng;
 
+    // Solo descartamos si es null o undefined
     if (lat === undefined || lng === undefined || lat === null || lng === null) {
       return null;
     }
@@ -32,7 +33,8 @@ export default function Dashboard() {
     const latFloat = parseFloat(lat);
     const lngFloat = parseFloat(lng);
 
-    if (isNaN(latFloat) || isNaN(lngFloat) || (latFloat === 0.0 && lngFloat === 0.0)) {
+    // Solamente validamos que sea un número real (NaN)
+    if (isNaN(latFloat) || isNaN(lngFloat)) {
       return null;
     }
 
@@ -73,36 +75,36 @@ export default function Dashboard() {
   };
 
   const crearOActualizarMarcador = (id, lat, lng, nombre, auto, asientos) => {
-    if (!lat || !lng) return;
+  if (lat === undefined || lng === undefined || lat === null || lng === null) return;
 
-    const popupContent = `
-      <div style="width:240px; padding:4px; font-family:sans-serif;">
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-          <div>
-            <div style="font-size:10px; color:#94a3b8;">CONDUCTOR</div>
-            <div style="font-size:14px; font-weight:bold;">${nombre}</div>
-          </div>
-          <span>🚕</span>
+  const popupContent = `
+    <div style="width:240px; padding:4px; font-family:sans-serif;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div>
+          <div style="font-size:10px; color:#94a3b8;">CONDUCTOR</div>
+          <div style="font-size:14px; font-weight:bold;">${nombre}</div>
         </div>
-        <div style="margin-top:8px; padding:8px; background:#f8fafc; border-radius:8px;">
-          <div style="font-size:10px; color:#94a3b8;">VEHÍCULO</div>
-          <div style="font-size:12px; font-weight:600;">${auto}</div>
-        </div>
-        <div style="margin-top:6px; font-size:12px;">
-          Asientos libres: <b>${asientos}</b>
-        </div>
+        <span>🚕</span>
       </div>
-    `;
+      <div style="margin-top:8px; padding:8px; background:#f8fafc; border-radius:8px;">
+        <div style="font-size:10px; color:#94a3b8;">VEHÍCULO</div>
+        <div style="font-size:12px; font-weight:600;">${auto}</div>
+      </div>
+      <div style="margin-top:6px; font-size:12px;">
+        Asientos libres: <b>${asientos}</b>
+      </div>
+    </div>
+  `;
 
-    if (markers.current[id]) {
-      moverMarcadorFluidamente(markers.current[id], lat, lng);
-      markers.current[id].getPopup().setContent(popupContent);
-    } else {
-      markers.current[id] = L.marker([lat, lng], { icon: taxiIcon })
-        .addTo(mapInstance.current)
-        .bindPopup(popupContent);
-    }
-  };
+  if (markers.current[id]) {
+    moverMarcadorFluidamente(markers.current[id], lat, lng);
+    markers.current[id].getPopup().setContent(popupContent);
+  } else {
+    markers.current[id] = L.marker([lat, lng], { icon: taxiIcon })
+      .addTo(mapInstance.current)
+      .bindPopup(popupContent);
+  }
+};
 
   const conectarWebSocket = () => {
     const accessToken = localStorage.getItem('access_token') || localStorage.getItem('token');
@@ -249,14 +251,17 @@ export default function Dashboard() {
   }, []);
 
   const seleccionarConductor = (chofer) => {
-    const id = chofer.chofer_id || chofer.id;
-    setSelectedDriver(id);
-    const marker = markers.current[id];
-    if (marker && mapInstance.current) {
-      mapInstance.current.flyTo(marker.getLatLng(), 16, { duration: 0.8 });
-      marker.openPopup();
-    }
-  };
+  const id = chofer.chofer_id || chofer.id;
+  setSelectedDriver(id);
+  
+  const marker = markers.current[id];
+  if (marker && mapInstance.current) {
+    mapInstance.current.flyTo(marker.getLatLng(), 15, { duration: 0.8 });
+    marker.openPopup();
+  } else if (chofer.lat !== undefined && chofer.lng !== undefined) {
+    mapInstance.current.flyTo([parseFloat(chofer.lat), parseFloat(chofer.lng)], 15, { duration: 0.8 });
+  }
+};
 
   return (
     <div className="min-h-screen w-full bg-slate-50 text-slate-900 flex flex-col">
