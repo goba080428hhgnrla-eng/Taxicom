@@ -35,16 +35,21 @@ async function refrescarToken() {
   const refresh = localStorage.getItem(REFRESH_KEY);
   if (!refresh) return null;
 
-  const res = await fetch('/api/v1/auth/refresh/', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ refresh }),
-  });
-  if (!res.ok) return null;
+  try {
+    const res = await fetch('/api/v1/auth/refresh/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh }),
+    });
+    if (!res.ok) return null;
 
-  const data = await res.json();
-  localStorage.setItem(ACCESS_KEY, data.access);
-  return data.access;
+    const data = await res.json();
+    localStorage.setItem(ACCESS_KEY, data.access);
+    return data.access;
+  } catch (err) {
+    console.error("Error al refrescar token:", err);
+    return null;
+  }
 }
 
 export async function apiFetch(path, options = {}) {
@@ -75,85 +80,86 @@ export async function apiFetch(path, options = {}) {
 }
 
 // ==========================================
-// 3. CONEXIÓN WEBSOCKET
+// 3. CONEXIÓN WEBSOCKET Y SUSCRIPCIONES
 // ==========================================
 
 let socket = null;
 let pingInterval = null;
+const suscriptores = new Set();
+
+/**
+ * Permite a los componentes suscribirse a los eventos del WebSocket
+ */
+export function suscribirWebSocket(callback) {
+  suscriptores.add(callback);
+  return () => suscriptores.delete(callback);
+}
 
 export function conectarWebSocket() {
-    const token = localStorage.getItem(ACCESS_KEY);
+  const token = localStorage.getItem(ACCESS_KEY);
 
-    if (!token || token.trim() === "") {
-        console.warn("⚠️ No se encontró token JWT en localStorage ('taxicom_access'). Conexión WebSocket cancelada.");
-        return;
+  if (!token || token.trim() === "") {
+    console.warn("⚠️ No se encontró token JWT en localStorage ('taxicom_access'). Conexión cancelada.");
+    return;
+  }
+
+  // Evita duplicar conexiones abiertas
+  if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
+    return;
+  }
+
+  const wsUrl = `wss://taxicom.onrender.com/ws/colectivos/?token=${encodeURIComponent(token)}`;
+  console.log("⚡ Conectando a WebSocket:", wsUrl);
+
+  socket = new WebSocket(wsUrl);
+
+  socket.onopen = () => {
+    console.log("✅ WebSocket conectado exitosamente");
+
+    if (pingInterval) clearInterval(pingInterval);
+
+    // Heartbeat para mantener viva la conexión en Render
+    pingInterval = setInterval(() => {
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ action: "ping" }));
+      }
+    }, 25000);
+  };
+
+  socket.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      if (data.event === "pong") return;
+
+      console.log("📩 Mensaje WS recibido:", data);
+
+      // Notificar a todos los componentes suscritos (ej. el Dashboard)
+      suscriptores.forEach((callback) => callback(data));
+    } catch (error) {
+      console.error("Error al procesar mensaje JSON del WebSocket:", error);
+    }
+  };
+
+  socket.onerror = (error) => console.error("❌ Error en WebSocket:", error);
+
+  socket.onclose = (event) => {
+    console.warn(`⚠️ WebSocket cerrado (Código: ${event.code})`);
+
+    if (pingInterval) {
+      clearInterval(pingInterval);
+      pingInterval = null;
     }
 
-    const wsUrl = `wss://taxicom.onrender.com/ws/colectivos/?token=${encodeURIComponent(token)}`;
-    console.log("⚡ Intentando conectar WebSocket a:", wsUrl);
+    if (event.code === 4001) {
+      console.error("Token rechazado. Redirigiendo a Login...");
+      cerrarSesion();
+      window.location.href = '/login';
+      return;
+    }
 
-    socket = new WebSocket(wsUrl);
-
-    socket.onopen = () => {
-        console.log("✅ WebSocket conectado exitosamente");
-
-        if (pingInterval) clearInterval(pingInterval);
-
-        // Mantener la conexión activa (evita desconexiones 1006 en Render)
-        pingInterval = setInterval(() => {
-            if (socket && socket.readyState === WebSocket.OPEN) {
-                socket.send(JSON.stringify({ action: "ping" }));
-            }
-        }, 25000);
-    };
-
-    socket.onmessage = (event) => {
-        try {
-            const data = JSON.parse(event.data);
-            
-            if (data.event === "pong") return;
-
-            console.log("📩 Mensaje recibido:", data);
-
-            switch (data.event) {
-                case "ubicacion_actualizada":
-                    break;
-                case "nuevo_cliente_colectivo":
-                    break;
-                case "nueva_solicitud_especial":
-                    break;
-                default:
-                    break;
-            }
-        } catch (error) {
-            console.error("Error al procesar mensaje JSON del WebSocket:", error);
-        }
-    };
-
-    socket.onerror = (error) => {
-        console.error("❌ Error en WebSocket:", error);
-    };
-
-    socket.onclose = (event) => {
-        console.warn(`⚠️ WebSocket Cerrado (Código: ${event.code})`);
-        
-        if (pingInterval) {
-            clearInterval(pingInterval);
-            pingInterval = null;
-        }
-
-        if (event.code === 4001) {
-            console.error("Token rechazado por el servidor WebSocket. Inicie sesión nuevamente.");
-            cerrarSesion();
-            window.location.href = '/login';
-            return;
-        }
-
-        if (event.code !== 1000) {
-            console.log("🔄 Intentando reconectar en 5 segundos...");
-            setTimeout(() => {
-                conectarWebSocket();
-            }, 5000);
-        }
-    };
+    // Reconexión automática si no fue un cierre intencional
+    if (event.code !== 1000) {
+      setTimeout(() => conectarWebSocket(), 5000);
+    }
+  };
 }
