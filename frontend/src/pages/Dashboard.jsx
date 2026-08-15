@@ -20,13 +20,11 @@ export default function Dashboard() {
   const socketRef = useRef(null);
   const reconnectTimeout = useRef(null);
 
-  // =========================================================
-  // HELPER PARA LLEER COORDENADAS (latitud/longitud o lat/lng)
-  // =========================================================
+  // Helper para validar y extraer coordenadas
   const obtenerCoordenadas = (data) => {
     const lat = data.latitud ?? data.lat;
     const lng = data.longitud ?? data.lng;
-    
+
     if (lat === undefined || lng === undefined || lat === null || lng === null) {
       return null;
     }
@@ -34,16 +32,12 @@ export default function Dashboard() {
     const latFloat = parseFloat(lat);
     const lngFloat = parseFloat(lng);
 
-    if (isNaN(latFloat) || isNaN(lngFloat) || latFloat === 0.0) {
+    if (isNaN(latFloat) || isNaN(lngFloat) || (latFloat === 0.0 && lngFloat === 0.0)) {
       return null;
     }
 
     return { lat: latFloat, lng: lngFloat };
   };
-
-  // =========================================================
-  // ANIMACIÓN Y ELIMINACIÓN DE MARCADORES
-  // =========================================================
 
   const removerMarcador = (id) => {
     if (markers.current[id]) {
@@ -78,7 +72,7 @@ export default function Dashboard() {
     requestAnimationFrame(animar);
   };
 
-  const crearOActualizarMarcador = (id, lat, lng, nombre, auto, sketchfabId, asientos) => {
+  const crearOActualizarMarcador = (id, lat, lng, nombre, auto, asientos) => {
     if (!lat || !lng) return;
 
     const popupContent = `
@@ -110,15 +104,10 @@ export default function Dashboard() {
     }
   };
 
-  // =========================================================
-  // WEBSOCKET (con token + reconexión)
-  // =========================================================
-
   const conectarWebSocket = () => {
     const accessToken = localStorage.getItem('access_token') || localStorage.getItem('token');
 
     if (!accessToken) {
-      console.error('No hay access token disponible, no se puede abrir el WebSocket');
       setWsStatus('Sin token');
       return;
     }
@@ -136,14 +125,22 @@ export default function Dashboard() {
     socket.onmessage = (e) => {
       const data = JSON.parse(e.data);
 
-      // CASO 1: CHOFER FINALIZÓ TURNO O SE DESCONECTÓ
+      // CASO 1: DESCONEXIÓN / CHOFER INACTIVO
       if (data.type === 'broadcast_chofer_desconectado' || data.event === 'chofer_desconectado') {
         removerMarcador(data.chofer_id);
-        setChoferes((prev) => prev.filter((c) => c.chofer_id !== data.chofer_id));
+        
+        // NO lo borramos de la lista, solo cambiamos su estado a Inactivo
+        setChoferes((prev) =>
+          prev.map((c) =>
+            c.chofer_id === data.chofer_id
+              ? { ...c, estado: 'Inactivo' }
+              : c
+          )
+        );
         return;
       }
 
-      // CASO 2: ACTUALIZACIÓN DE UBICACIÓN
+      // CASO 2: ACTUALIZACIÓN DE UBICACIÓN Y ESTADO
       const esBroadcastUbicacion = data.type === 'broadcast_ubicacion' || data.event === 'ubicacion_actualizada';
       const coords = obtenerCoordenadas(data);
 
@@ -155,7 +152,6 @@ export default function Dashboard() {
             coords.lng,
             data.nombre || 'Chofer en Ruta',
             data.vehiculo || 'Vehículo Activo',
-            data.sketchfab_id || '',
             data.asientos_disponibles ?? 0
           );
         }
@@ -173,7 +169,7 @@ export default function Dashboard() {
                 asientos_disponibles: data.asientos_disponibles ?? 0,
                 lat: coords?.lat,
                 lng: coords?.lng,
-                estado: data.modalidad || 'En Ruta',
+                estado: data.modalidad || 'Activo',
               },
             ];
           }
@@ -187,7 +183,7 @@ export default function Dashboard() {
                   lat: coords ? coords.lat : c.lat,
                   lng: coords ? coords.lng : c.lng,
                   asientos_disponibles: data.asientos_disponibles ?? c.asientos_disponibles,
-                  estado: data.modalidad || 'En Ruta',
+                  estado: data.modalidad || 'Activo',
                 }
               : c
           );
@@ -197,11 +193,8 @@ export default function Dashboard() {
 
     socket.onclose = (e) => {
       setWsStatus(`Desconectado (code ${e.code})`);
-
       if (e.code !== 4001) {
         reconnectTimeout.current = setTimeout(conectarWebSocket, 3000);
-      } else {
-        console.error('WebSocket rechazado por autenticación (code 4001)');
       }
     };
 
@@ -220,36 +213,33 @@ export default function Dashboard() {
     }
 
     // CARGA INICIAL POR API REST
-    apiFetch('/api/v1/admin/choferes/mapa/')
+    // Si quieres traer TODOS los choferes (incluyendo inactivos), usa la vista general de choferes
+    apiFetch('/api/v1/admin/choferes/')
       .then((res) => res.json())
       .then((data) => {
-        const listaChoferes = data.choferes || [];
+        const listaChoferes = data.results || data.choferes || (Array.isArray(data) ? data : []);
         setChoferes(listaChoferes);
 
         listaChoferes.forEach((c) => {
           const coords = obtenerCoordenadas(c);
           if (coords) {
             crearOActualizarMarcador(
-              c.chofer_id,
+              c.chofer_id || c.id,
               coords.lat,
               coords.lng,
               c.nombre,
               c.vehiculo,
-              c.sketchfab_id,
               c.asientos_disponibles
             );
           }
         });
       })
-      .catch((err) => console.error('Error cargando flota:', err));
+      .catch((err) => console.error('Error cargando lista de choferes:', err));
 
-    // INICIAR WEBSOCKET
     conectarWebSocket();
 
     return () => {
-      if (reconnectTimeout.current) {
-        clearTimeout(reconnectTimeout.current);
-      }
+      if (reconnectTimeout.current) clearTimeout(reconnectTimeout.current);
       socketRef.current?.close();
       if (mapInstance.current) {
         mapInstance.current.remove();
@@ -259,8 +249,9 @@ export default function Dashboard() {
   }, []);
 
   const seleccionarConductor = (chofer) => {
-    setSelectedDriver(chofer.chofer_id);
-    const marker = markers.current[chofer.chofer_id];
+    const id = chofer.chofer_id || chofer.id;
+    setSelectedDriver(id);
+    const marker = markers.current[id];
     if (marker && mapInstance.current) {
       mapInstance.current.flyTo(marker.getLatLng(), 16, { duration: 0.8 });
       marker.openPopup();
@@ -279,23 +270,37 @@ export default function Dashboard() {
       <main className="flex-1 w-full p-4 overflow-hidden">
         <div className="w-full h-full grid grid-cols-12 gap-4">
           <aside className="col-span-3 bg-white rounded-2xl border border-slate-200 p-4 overflow-y-auto">
-            <h2 className="font-bold text-lg mb-4">Vehículos Activos ({choferes.length})</h2>
-            {choferes.map((c) => (
-              <button
-                key={c.chofer_id}
-                onClick={() => seleccionarConductor(c)}
-                className={`w-full text-left p-3 mb-2 rounded-xl border transition-all ${
-                  selectedDriver === c.chofer_id ? 'bg-slate-900 text-white' : 'bg-white hover:bg-slate-50'
-                }`}
-              >
-                <div className="font-semibold text-sm">{c.nombre}</div>
-                <div className="text-xs opacity-70">{c.vehiculo}</div>
-                <div className="text-xs mt-2">Free seats: {c.asientos_disponibles}</div>
-              </button>
-            ))}
+            <h2 className="font-bold text-lg mb-4">Lista de Choferes ({choferes.length})</h2>
+            {choferes.map((c) => {
+              const id = c.chofer_id || c.id;
+              const estaActivo = c.estado !== 'Inactivo' && c.estado !== 'inactivo';
+
+              return (
+                <button
+                  key={id}
+                  onClick={() => seleccionarConductor(c)}
+                  className={`w-full text-left p-3 mb-2 rounded-xl border transition-all ${
+                    selectedDriver === id ? 'bg-slate-900 text-white' : 'bg-white hover:bg-slate-50'
+                  }`}
+                >
+                  <div className="flex justify-between items-center">
+                    <div className="font-semibold text-sm">{c.nombre}</div>
+                    <span
+                      className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                        estaActivo ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500'
+                      }`}
+                    >
+                      {c.estado || 'Inactivo'}
+                    </span>
+                  </div>
+                  <div className="text-xs opacity-70 mt-1">{c.vehiculo}</div>
+                  <div className="text-xs mt-1 opacity-80">Asientos libres: {c.asientos_disponibles ?? 0}</div>
+                </button>
+              );
+            })}
             {choferes.length === 0 && (
               <p className="text-xs text-slate-400 text-center mt-8">
-                No hay choferes activos en este momento.
+                No hay choferes registrados.
               </p>
             )}
           </aside>
