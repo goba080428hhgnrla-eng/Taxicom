@@ -94,6 +94,9 @@ class Chofer(models.Model):
     estado = models.CharField(max_length=20, choices=ESTADOS, default='pendiente', db_index=True)
     grupo_rol = models.CharField(max_length=20, blank=True, null=True)
     asientos_disponibles = models.IntegerField(default=4)
+    perfil = models.OneToOneField(PerfilUsuario, on_delete=models.CASCADE, related_name='chofer_datos')
+    
+    foto_licencia = models.ImageField(upload_to='licencias/', null=True, blank=True)
     
     # Índices optimizados para rastreo rápido de mapa
     latitud = models.FloatField(default=0.0, db_index=True)

@@ -256,88 +256,84 @@ export default function GestionChoferes() {
       </div>
 
       {/* EXPEDIENTE SLIDE-OVER */}
-      {choferDetalle && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex justify-end">
-          <div className="bg-white w-full sm:w-[450px] h-full shadow-2xl p-5 sm:p-6 overflow-y-auto flex flex-col justify-between">
-            <div className="space-y-5">
-              
-              {/* Encabezado panel */}
-              <div className="flex items-start justify-between border-b border-slate-100 pb-4">
-                <div>
-                  <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-2.5 py-1 rounded-full uppercase tracking-wider">
-                    Expediente Digital
-                  </span>
-                  <h3 className="text-lg sm:text-xl font-bold text-slate-900 mt-2">
-                    {choferDetalle.perfil?.nombre} {choferDetalle.perfil?.apellido}
-                  </h3>
-                  <p className="text-xs text-slate-400">ID Operador: #{choferDetalle.id}</p>
-                </div>
-                <button
-                  onClick={() => setChoferDetalle(null)}
-                  className="p-1.5 text-slate-400 hover:text-slate-700 rounded-full hover:bg-slate-100 text-lg font-bold"
-                >
-                  ✕
-                </button>
+{choferDetalle && (
+  <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex justify-end">
+    <div className="bg-white w-full sm:w-[480px] h-full shadow-2xl p-6 overflow-y-auto flex flex-col justify-between">
+      <div className="space-y-5">
+        
+        {/* ENCABEZADO: FOTO DE PERFIL */}
+        <div className="flex items-start justify-between border-b border-slate-100 pb-4">
+          <div className="flex items-center space-x-3">
+            {choferDetalle.perfil?.foto ? (
+              <img 
+                src={choferDetalle.perfil.foto} 
+                alt="Foto Perfil" 
+                className="w-14 h-14 rounded-2xl object-cover border border-slate-200 shadow-sm"
+              />
+            ) : (
+              <div className="w-14 h-14 rounded-2xl bg-slate-100 flex items-center justify-center text-slate-400 font-bold">
+                📷
               </div>
-
-              {/* Datos Personales */}
-              <div className="space-y-2.5">
-                <h4 className="text-[11px] font-bold uppercase text-slate-400 tracking-wider">Información de Contacto</h4>
-                <div className="bg-slate-50 rounded-2xl p-3.5 sm:p-4 space-y-2 text-xs">
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Teléfono:</span>
-                    <span className="font-bold text-slate-800">{choferDetalle.perfil?.telefono || 'Sin registro'}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Correo:</span>
-                    <span className="font-bold text-slate-800 truncate max-w-[180px] sm:max-w-none">{choferDetalle.perfil?.email}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Estado Actual:</span>
-                    <span className="font-bold">{obtenerBadgeEstado(choferDetalle.estado, choferDetalle.estado_display)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Fecha de Registro:</span>
-                    <span className="font-medium text-slate-600">{choferDetalle.perfil?.fecha_registro || 'Reciente'}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Datos Vehículo */}
-              <div className="space-y-2.5">
-                <h4 className="text-[11px] font-bold uppercase text-slate-400 tracking-wider">Vehículo Registrado</h4>
-                {choferDetalle.vehiculo ? (
-                  <div className="bg-slate-900 text-white rounded-2xl p-4 sm:p-5 space-y-3 shadow-md">
-                    <div className="flex justify-between items-center">
-                      <p className="font-extrabold text-sm sm:text-base">{choferDetalle.vehiculo.marca} {choferDetalle.vehiculo.modelo}</p>
-                      <span className="bg-amber-500 text-slate-950 font-black text-xs px-2.5 py-1 rounded-lg">
-                        {choferDetalle.vehiculo.placas}
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 text-xs text-slate-300 border-t border-slate-800 pt-3">
-                      <div>Año: <b className="text-white">{choferDetalle.vehiculo.anio || 'N/A'}</b></div>
-                      <div>Color: <b className="text-white">{choferDetalle.vehiculo.color || 'N/A'}</b></div>
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-xs text-slate-400 italic">No cuenta con vehículo asignado.</p>
-                )}
-              </div>
-
-            </div>
-
-            {/* BOTÓN DAR DE BAJA */}
-            <div className="pt-4 mt-6 border-t border-slate-100">
-              <button
-                onClick={() => setModalEliminar(true)}
-                className="w-full bg-red-50 hover:bg-red-100 text-red-600 border border-red-200/70 font-bold text-xs py-3 rounded-2xl transition flex items-center justify-center space-x-2"
-              >
-                <span>🚨 Dar de baja por Incidencia</span>
-              </button>
+            )}
+            <div>
+              <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-2.5 py-1 rounded-full uppercase tracking-wider">
+                Expediente Digital
+              </span>
+              <h3 className="text-lg font-bold text-slate-900 mt-1">
+                {choferDetalle.perfil?.nombre} {choferDetalle.perfil?.apellido}
+              </h3>
+              <p className="text-xs text-slate-400">Chofer ID: #{choferDetalle.id}</p>
             </div>
           </div>
+          <button onClick={() => setChoferDetalle(null)} className="text-slate-400 hover:text-slate-700 font-bold">✕</button>
         </div>
-      )}
+
+        {/* FOTO DE LICENCIA */}
+        <div className="space-y-2">
+          <h4 className="text-[11px] font-bold uppercase text-slate-400 tracking-wider">Licencia de Conducir</h4>
+          {choferDetalle.foto_licencia ? (
+            <div className="relative group rounded-2xl overflow-hidden border border-slate-200 shadow-sm bg-slate-900">
+              <img 
+                src={choferDetalle.foto_licencia} 
+                alt="Licencia de Conducir" 
+                className="w-full h-44 object-cover group-hover:opacity-80 transition"
+              />
+              <a 
+                href={choferDetalle.foto_licencia} 
+                target="_blank" 
+                rel="noreferrer"
+                className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 bg-slate-950/60 text-white font-bold text-xs transition"
+              >
+                🔍 Ampliar Documento
+              </a>
+            </div>
+          ) : (
+            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-center text-amber-800 text-xs font-semibold">
+              ⚠️ No se ha adjuntado foto de licencia.
+            </div>
+          )}
+        </div>
+
+        {/* DATOS DEL VEHÍCULO */}
+        <div className="space-y-2">
+          <h4 className="text-[11px] font-bold uppercase text-slate-400 tracking-wider">Vehículo Registrado</h4>
+          {choferDetalle.vehiculo && (
+            <div className="bg-slate-900 text-white rounded-2xl p-4 space-y-2 text-xs">
+              <div className="flex justify-between items-center">
+                <span className="font-bold">{choferDetalle.vehiculo.marca} {choferDetalle.vehiculo.modelo}</span>
+                <span className="bg-amber-500 text-slate-950 font-extrabold px-2 py-0.5 rounded">
+                  {choferDetalle.vehiculo.placas}
+                </span>
+              </div>
+              <p className="text-slate-400">Año: {choferDetalle.vehiculo.anio}</p>
+            </div>
+          )}
+        </div>
+
+      </div>
+    </div>
+  </div>
+)}
 
       {/* MODAL DE INCIDENCIA */}
       {modalEliminar && (

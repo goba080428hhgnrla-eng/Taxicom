@@ -156,14 +156,13 @@ class RegistroClienteView(APIView):
         return Response(data, status=status.HTTP_201_CREATED)
 
 
+# Taxis/Taxis/api/v1/auth.py
+
+from rest_framework.parsers import MultiPartParser, FormParser
+
 # ---------------------------------------------------------------------------
-# REGISTRO / PROMOCION DE CHOFER
+# PROMOCIONAR A CHOFER (Usuario Autenticado)
 # ---------------------------------------------------------------------------
-# Nota importante: el endpoint original (api_registro_chofer) mezclaba dos
-# casos en uno: "promocionar a un usuario existente" y "registrar desde
-# cero", diferenciados por si mandabas perfil_id en el body. Eso ya no
-# aplica con auth por token: separarlos en dos vistas con permisos distintos
-# es mas seguro y mas claro.
 
 class PromocionarAChoferSerializer(serializers.Serializer):
     marca = serializers.CharField()
@@ -173,6 +172,10 @@ class PromocionarAChoferSerializer(serializers.Serializer):
     total_asientos = serializers.IntegerField(default=4)
     tiene_cajuela = serializers.BooleanField(default=True)
     sketchfab_model_id = serializers.CharField(required=False, allow_blank=True, default="")
+    
+    # Archivos multimedia opcionales/requeridos
+    foto = serializers.ImageField(required=False, allow_null=True)
+    foto_licencia = serializers.ImageField(required=False, allow_null=True)
 
     def validate_placas(self, value):
         if Vehiculo.objects.filter(placas=value).exists():
@@ -181,12 +184,8 @@ class PromocionarAChoferSerializer(serializers.Serializer):
 
 
 class PromocionarAChoferView(APIView):
-    """
-    Un cliente YA AUTENTICADO se registra como chofer (sube su vehiculo).
-    Requiere estar logueado -- ya no se manda perfil_id en el body, se usa
-    request.user.
-    """
     permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser] # Permite recibir datos de multipart/form-data
 
     def post(self, request):
         serializer = PromocionarAChoferSerializer(data=request.data)
@@ -195,6 +194,10 @@ class PromocionarAChoferView(APIView):
         usuario = request.user
 
         with transaction.atomic():
+            # Actualizamos la foto de perfil si fue provista
+            if "foto" in request.FILES:
+                usuario.foto = request.FILES["foto"]
+            
             usuario.es_chofer = True
             usuario.save()
 
@@ -210,8 +213,13 @@ class PromocionarAChoferView(APIView):
 
             chofer, _creado = Chofer.objects.get_or_create(perfil=usuario)
             chofer.vehiculo = vehiculo
-            chofer.estado = "pendiente"  # requiere aprobacion del admin
+            chofer.estado = "pendiente"
             chofer.asientos_disponibles = datos["total_asientos"]
+            
+            # Guardamos la licencia si fue provista
+            if "foto_licencia" in request.FILES:
+                chofer.foto_licencia = request.FILES["foto_licencia"]
+                
             chofer.save()
 
         return Response(
@@ -225,7 +233,7 @@ class PromocionarAChoferView(APIView):
 
 
 # ---------------------------------------------------------------------------
-# REGISTRO DE CHOFER DESDE CERO (sin cuenta previa)
+# REGISTRO DE CHOFER DESDE CERO
 # ---------------------------------------------------------------------------
 
 class RegistroChoferDesdeCeroSerializer(serializers.Serializer):
@@ -243,6 +251,10 @@ class RegistroChoferDesdeCeroSerializer(serializers.Serializer):
     tiene_cajuela = serializers.BooleanField(default=True)
     sketchfab_model_id = serializers.CharField(required=False, allow_blank=True, default="")
 
+    # Imágenes
+    foto = serializers.ImageField(required=False, allow_null=True)
+    foto_licencia = serializers.ImageField(required=False, allow_null=True)
+
     def validate_correo(self, value):
         if PerfilUsuario.objects.filter(email=value).exists():
             raise serializers.ValidationError("El correo ya esta registrado.")
@@ -255,12 +267,8 @@ class RegistroChoferDesdeCeroSerializer(serializers.Serializer):
 
 
 class RegistroChoferDesdeCeroView(APIView):
-    """
-    Antes: api_registro_chofer, caso B (sin perfil_id) -- crea PerfilUsuario
-    + Vehiculo + Chofer en una sola llamada, para alguien que no tiene
-    cuenta todavia.
-    """
     permission_classes = [AllowAny]
+    parser_classes = [MultiPartParser, FormParser] # Habilita multipart upload
 
     def post(self, request):
         serializer = RegistroChoferDesdeCeroSerializer(data=request.data)
@@ -273,11 +281,12 @@ class RegistroChoferDesdeCeroView(APIView):
                 nombre=datos["nombre"],
                 apellido=datos["apellido"],
                 email=datos["correo"],
-                password_hash=datos["password"],  # save() lo hashea
+                password_hash=datos["password"],
                 telefono=datos["telefono"],
                 es_cliente=False,
                 es_chofer=True,
                 es_admin=False,
+                foto=request.FILES.get("foto") # Guarda la foto de perfil directamente
             )
 
             vehiculo = Vehiculo.objects.create(
@@ -295,6 +304,7 @@ class RegistroChoferDesdeCeroView(APIView):
                 vehiculo=vehiculo,
                 estado="pendiente",
                 asientos_disponibles=datos["total_asientos"],
+                foto_licencia=request.FILES.get("foto_licencia") # Guarda foto de licencia
             )
 
         data = _emitir_tokens(usuario)
