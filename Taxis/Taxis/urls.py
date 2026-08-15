@@ -231,12 +231,12 @@ urlpatterns = [
         QuitarChoferRutaView.as_view(),
         name="api_quitar_chofer_ruta_v1"
     ),
-    path('admin/roles/config/', RolesConfigView.as_view(), name='roles_config'),
+    path('api/v1/admin/roles/config/', RolesConfigView.as_view(), name='roles_config'),
     
     # Único botón manual que usará el admin
-    path('admin/roles/confirmar-pago/', ConfirmarPagoEfectivoView.as_view(), name='roles_confirmar_pago'),
+    path('api/v1/admin/roles/confirmar-pago/', ConfirmarPagoEfectivoView.as_view(), name='roles_confirmar_pago'),
     
-    path('admin/choferes/<int:chofer_id>/', DetalleChoferView.as_view(), name='admin_detalle_chofer'),
+    path('api/v1/admin/choferes/<int:chofer_id>/', DetalleChoferView.as_view(), name='admin_detalle_chofer'),
     # =====================================================
     # REACT
     # SIEMPRE AL FINAL
