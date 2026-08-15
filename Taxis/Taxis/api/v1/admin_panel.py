@@ -17,6 +17,7 @@ from rest_framework.views import APIView
 
 from ...models import Chofer, PerfilUsuario
 from ...permissions import EsAdmin
+from django.db import transaction
 
 
 def _serializar_chofer(c: Chofer) -> dict:
@@ -176,3 +177,70 @@ class MapaChoferesActivosView(APIView):
                 )
 
         return Response({"choferes": data}, status=status.HTTP_200_OK)
+    
+    
+class DetalleChoferView(APIView):
+    """
+    GET: Devuelve el expediente completo del chofer y su vehículo.
+    DELETE: Elimina el chofer del sistema en caso de incidencia.
+    """
+    permission_classes = [IsAuthenticated, EsAdmin]
+
+    def get(self, request, chofer_id):
+        try:
+            chofer = Chofer.objects.select_related("perfil", "vehiculo").get(id=chofer_id)
+        except Chofer.DoesNotExist:
+            return Response(
+                {"status": "error", "message": "Chofer no encontrado."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        v = chofer.vehiculo
+        p = chofer.perfil
+
+        data = {
+            "id": chofer.id,
+            "estado": chofer.estado,
+            "estado_display": chofer.get_estado_display(),
+            "grupo_rol": getattr(chofer, "grupo_rol", "Sin asignar"),
+            "asientos_disponibles": chofer.asientos_disponibles,
+            "perfil": {
+                "id_usuario": p.id_usuario,
+                "nombre": p.nombre or "",
+                "apellido": p.apellido or "",
+                "email": p.email,
+                "telefono": getattr(p, "telefono", ""),
+                "rol": p.rol,
+                "fecha_registro": p.fecha_registro.strftime("%Y-%m-%d %H:%M") if p.fecha_registro else None,
+            },
+            "vehiculo": {
+                "id": v.id,
+                "marca": v.marca,
+                "modelo": v.modelo,
+                "anio": getattr(v, "anio", ""),
+                "placas": v.placas,
+                "color": getattr(v, "color", "No especificado"),
+            } if v else None
+        }
+        return Response(data, status=status.HTTP_200_OK)
+
+    def delete(self, request, chofer_id):
+        try:
+            chofer = Chofer.objects.select_related("perfil").get(id=chofer_id)
+        except Chofer.DoesNotExist:
+            return Response(
+                {"status": "error", "message": "Chofer no encontrado."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        motivo = request.data.get("motivo", "Falta administrativa / Incidencia")
+
+        with transaction.atomic():
+            nombre = f"{chofer.perfil.nombre} {chofer.perfil.apellido}".strip()
+            # Elimina la entidad chofer
+            chofer.delete()
+
+        return Response(
+            {"status": "ok", "message": f"Chofer {nombre} dado de baja exitosamente."},
+            status=status.HTTP_200_OK,
+        )    

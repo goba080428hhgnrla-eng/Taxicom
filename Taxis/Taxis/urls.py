@@ -22,6 +22,7 @@ from Taxis.api.v1.admin_panel import (
     GestionChoferView,
     ListaUsuariosView,
     MapaChoferesActivosView,
+    DetalleChoferView,
 )
 
 from Taxis.api.v1.viajes import (
@@ -234,6 +235,8 @@ urlpatterns = [
     
     # Único botón manual que usará el admin
     path('admin/roles/confirmar-pago/', ConfirmarPagoEfectivoView.as_view(), name='roles_confirmar_pago'),
+    
+    path('admin/choferes/<int:chofer_id>/', DetalleChoferView.as_view(), name='admin_detalle_chofer'),
     # =====================================================
     # REACT
     # SIEMPRE AL FINAL
