@@ -4,8 +4,8 @@ import { apiFetch } from '../api';
 export default function GestionChoferes() {
   const [pendientes, setPendientes] = useState([]);
   const [activos, setActivos] = useState([]);
-  
-  // Estados para el detalle y la eliminación por incidencia
+
+  // Estados para el expediente lateral y baja por incidencia
   const [choferDetalle, setChoferDetalle] = useState(null);
   const [cargandoDetalle, setCargandoDetalle] = useState(false);
   const [modalEliminar, setModalEliminar] = useState(false);
@@ -25,7 +25,7 @@ export default function GestionChoferes() {
   }, []);
 
   const handleAccion = async (chofer_id, accion) => {
-    const res = await apiFetch('/api/v1/admin/choferes/gestion/', {
+    const res = await apiFetch('/api/v1/admin/choferes/gestionar/', {
       method: 'POST',
       body: JSON.stringify({ chofer_id, accion }),
     });
@@ -38,7 +38,7 @@ export default function GestionChoferes() {
     cargarDatos();
   };
 
-  // Cargar datos detallados del chofer al hacer click
+  // Carga expediente completo al hacer clic en cualquier chofer
   const abrirExpediente = async (chofer_id) => {
     setCargandoDetalle(true);
     try {
@@ -48,16 +48,16 @@ export default function GestionChoferes() {
         setChoferDetalle(data);
       }
     } catch (error) {
-      console.error("Error al cargar expediente:", error);
+      console.error("Error al obtener expediente del chofer:", error);
     } finally {
       setCargandoDetalle(false);
     }
   };
 
-  // Eliminar por Incidencia
+  // Procesa la baja por incidencia
   const handleEliminarIncidencia = async () => {
     if (!choferDetalle) return;
-    
+
     const res = await apiFetch(`/api/v1/admin/choferes/${choferDetalle.id}/`, {
       method: 'DELETE',
       body: JSON.stringify({ motivo: motivoIncidencia }),
@@ -69,7 +69,7 @@ export default function GestionChoferes() {
       setMotivoIncidencia('');
       cargarDatos();
     } else {
-      alert("Error al intentar dar de baja al conductor.");
+      alert("No se pudo dar de baja al conductor.");
     }
   };
 
@@ -77,15 +77,15 @@ export default function GestionChoferes() {
     <div className="space-y-8 font-sans antialiased max-w-7xl mx-auto p-6 relative">
       <div>
         <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">Solicitudes y Operadores</h1>
-        <p className="text-slate-500 text-sm mt-1">Valida nuevos conductores, revisa expedientes o gestiona incidencias.</p>
+        <p className="text-slate-500 text-sm mt-1">Valida nuevos conductores o haz clic sobre cualquier chofer para inspeccionar su expediente completo.</p>
       </div>
 
-      {/* TABLA 1: NUEVAS SOLICITUDES */}
+      {/* TABLA DE SOLICITUDES PENDIENTES */}
       <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="p-6 border-b border-slate-100 bg-amber-50/30 flex items-center justify-between">
           <div>
             <h2 className="text-base font-bold text-amber-950">Nuevas Solicitudes por Aprobar</h2>
-            <p className="text-xs text-amber-800/80">Haz clic en una fila para inspeccionar el expediente</p>
+            <p className="text-xs text-amber-800/80">Haz clic en una fila para ver el detalle de los documentos</p>
           </div>
           <span className="bg-amber-100 text-amber-900 text-xs font-bold px-3 py-1 rounded-full">
             {pendientes.length} pendientes
@@ -148,13 +148,11 @@ export default function GestionChoferes() {
         </div>
       </div>
 
-      {/* TABLA 2: CHOFERES ACTIVOS */}
+      {/* TABLA DE CHOFERES ACTIVOS / EN RUTA (HAZ CLICK EN CUALQUIERA PARA VER SUS DATOS) */}
       <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="p-6 border-b border-slate-100 flex items-center justify-between">
-          <div>
-            <h2 className="text-base font-bold text-slate-900">Choferes Activos / En Ruta</h2>
-            <p className="text-xs text-slate-400">Haz clic en un operador para ver vehículo e historia</p>
-          </div>
+        <div className="p-6 border-b border-slate-100">
+          <h2 className="text-base font-bold text-slate-900">Choferes Activos / En Ruta</h2>
+          <p className="text-xs text-slate-400 mt-0.5">Selecciona cualquier chofer registrado para ver toda su información personal y de su vehículo</p>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
@@ -172,7 +170,7 @@ export default function GestionChoferes() {
                   <tr 
                     key={c.id} 
                     onClick={() => abrirExpediente(c.id)}
-                    className="hover:bg-slate-50/80 cursor-pointer transition"
+                    className="hover:bg-slate-50 cursor-pointer transition"
                   >
                     <td className="p-4 pl-6 font-semibold text-slate-900">
                       {c.perfil.nombre} {c.perfil.apellido}
@@ -206,21 +204,22 @@ export default function GestionChoferes() {
         </div>
       </div>
 
-      {/* EXPEDIENTE PANEL LATERAL (SLIDE-OVER) */}
+      {/* PANEL SLIDE-OVER CON LA INFORMACIÓN DETALLADA DEL CHOFER SELECCIONADO */}
       {choferDetalle && (
         <div className="fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-sm flex justify-end">
           <div className="bg-white w-full max-w-md h-full shadow-2xl p-6 overflow-y-auto flex flex-col justify-between">
             <div className="space-y-6">
               
-              {/* Header Expediente */}
+              {/* Encabezado */}
               <div className="flex items-center justify-between border-b border-slate-100 pb-4">
                 <div>
                   <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full uppercase tracking-wider">
-                    Expediente Digital
+                    Información del Integrante
                   </span>
                   <h3 className="text-xl font-bold text-slate-900 mt-1">
                     {choferDetalle.perfil.nombre} {choferDetalle.perfil.apellido}
                   </h3>
+                  <p className="text-xs text-slate-400">ID Operador: #{choferDetalle.id}</p>
                 </div>
                 <button
                   onClick={() => setChoferDetalle(null)}
@@ -230,32 +229,32 @@ export default function GestionChoferes() {
                 </button>
               </div>
 
-              {/* Datos Personales */}
+              {/* Información Personal */}
               <div className="space-y-3">
-                <h4 className="text-xs font-bold uppercase text-slate-400 tracking-wider">Datos del Conductor</h4>
-                <div className="bg-slate-50 rounded-2xl p-4 space-y-2 text-xs">
+                <h4 className="text-xs font-bold uppercase text-slate-400 tracking-wider">Datos Personales</h4>
+                <div className="bg-slate-50 rounded-2xl p-4 space-y-2.5 text-xs">
                   <div className="flex justify-between">
                     <span className="text-slate-400">Teléfono:</span>
-                    <span className="font-bold text-slate-800">{choferDetalle.perfil.telefono || 'Sin registro'}</span>
+                    <span className="font-bold text-slate-800">{choferDetalle.perfil.telefono || 'Sin teléfono'}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-400">Correo:</span>
+                    <span className="text-slate-400">Correo Electrónico:</span>
                     <span className="font-bold text-slate-800">{choferDetalle.perfil.email}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-400">Grupo / Rol:</span>
-                    <span className="font-bold text-amber-600">{choferDetalle.grupo_rol}</span>
+                    <span className="text-slate-400">Grupo Asignado:</span>
+                    <span className="font-bold text-amber-600">⚡ {choferDetalle.grupo_rol}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-400">Registro:</span>
+                    <span className="text-slate-400">Fecha de Registro:</span>
                     <span className="font-medium text-slate-600">{choferDetalle.perfil.fecha_registro}</span>
                   </div>
                 </div>
               </div>
 
-              {/* Datos del Vehículo */}
+              {/* Información del Vehículo */}
               <div className="space-y-3">
-                <h4 className="text-xs font-bold uppercase text-slate-400 tracking-wider">Vehículo Asignado</h4>
+                <h4 className="text-xs font-bold uppercase text-slate-400 tracking-wider">Vehículo Vinculado</h4>
                 {choferDetalle.vehiculo ? (
                   <div className="bg-slate-900 text-white rounded-2xl p-5 space-y-3 shadow-md">
                     <div className="flex justify-between items-center">
@@ -270,19 +269,19 @@ export default function GestionChoferes() {
                     </div>
                   </div>
                 ) : (
-                  <p className="text-xs text-slate-400 italic">Sin vehículo asignado.</p>
+                  <p className="text-xs text-slate-400 italic">No tiene ningún vehículo asignado.</p>
                 )}
               </div>
 
             </div>
 
-            {/* BOTÓN DE ACCIÓN: INCIDENCIA / ELIMINAR */}
+            {/* BOTÓN ELIMINAR / INCIDENCIA */}
             <div className="pt-6 border-t border-slate-100">
               <button
                 onClick={() => setModalEliminar(true)}
                 className="w-full bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 font-bold text-xs py-3 rounded-2xl transition flex items-center justify-center space-x-2"
               >
-                <span>🚨 Dar de baja por Incidencia</span>
+                <span>🚨 Dar de Baja por Incidencia</span>
               </button>
             </div>
           </div>
@@ -295,12 +294,12 @@ export default function GestionChoferes() {
           <div className="bg-white rounded-3xl max-w-sm w-full p-6 space-y-4 shadow-2xl">
             <h3 className="text-lg font-extrabold text-red-600">Baja por Incidencia</h3>
             <p className="text-xs text-slate-500 leading-relaxed">
-              Estás a punto de dar de baja a <b className="text-slate-900">{choferDetalle?.perfil.nombre}</b>. Escribe el motivo para la auditoría:
+              Escribe el motivo de la baja del conductor <b className="text-slate-900">{choferDetalle?.perfil.nombre}</b>:
             </p>
             <textarea
               value={motivoIncidencia}
               onChange={(e) => setMotivoIncidencia(e.target.value)}
-              placeholder="Ejemplo: Accidente, cobro indebido, altercado..."
+              placeholder="Ejemplo: Falta administrativa, accidente, reporte de usuario..."
               className="w-full border border-slate-200 rounded-2xl p-3 text-xs focus:ring-2 focus:ring-red-500 focus:outline-none min-h-[80px]"
             />
             <div className="flex gap-2 justify-end">

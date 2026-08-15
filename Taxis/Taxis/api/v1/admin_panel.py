@@ -180,10 +180,6 @@ class MapaChoferesActivosView(APIView):
     
     
 class DetalleChoferView(APIView):
-    """
-    GET: Devuelve el expediente completo del chofer y su vehículo.
-    DELETE: Elimina el chofer del sistema en caso de incidencia.
-    """
     permission_classes = [IsAuthenticated, EsAdmin]
 
     def get(self, request, chofer_id):
@@ -195,8 +191,8 @@ class DetalleChoferView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        v = chofer.vehiculo
         p = chofer.perfil
+        v = chofer.vehiculo
 
         data = {
             "id": chofer.id,
@@ -210,7 +206,6 @@ class DetalleChoferView(APIView):
                 "apellido": p.apellido or "",
                 "email": p.email,
                 "telefono": getattr(p, "telefono", ""),
-                "rol": p.rol,
                 "fecha_registro": p.fecha_registro.strftime("%Y-%m-%d %H:%M") if p.fecha_registro else None,
             },
             "vehiculo": {
@@ -233,14 +228,13 @@ class DetalleChoferView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        motivo = request.data.get("motivo", "Falta administrativa / Incidencia")
+        motivo = request.data.get("motivo", "Incidencia")
 
         with transaction.atomic():
             nombre = f"{chofer.perfil.nombre} {chofer.perfil.apellido}".strip()
-            # Elimina la entidad chofer
             chofer.delete()
 
         return Response(
-            {"status": "ok", "message": f"Chofer {nombre} dado de baja exitosamente."},
+            {"status": "ok", "message": f"El chofer {nombre} fue dado de baja."},
             status=status.HTTP_200_OK,
-        )    
+        )
