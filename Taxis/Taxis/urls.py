@@ -34,7 +34,7 @@ from Taxis.api.v1.roles import (
     RolesConfigView,
     GuardarReglaRolView,
     EliminarGrupoRolView,
-    AsignarChoferGrupoView,
+    ConfirmarPagoEfectivoView,
 )
 
 from Taxis.api.v1.rutas import (
@@ -198,11 +198,11 @@ urlpatterns = [
         name="api_eliminar_grupo_v1"
     ),
 
-    path(
-        "api/v1/admin/roles/asignar-chofer/",
-        AsignarChoferGrupoView.as_view(),
-        name="api_asignar_chofer_v1"
-    ),
+    #path(
+     #   "api/v1/admin/roles/asignar-chofer/",
+      #  AsignarChoferGrupoView.as_view(),
+       # name="api_asignar_chofer_v1"
+    #),
 
 
     # =====================================================
@@ -232,6 +232,17 @@ urlpatterns = [
         QuitarChoferRutaView.as_view(),
         name="api_quitar_chofer_ruta_v1"
     ),
+    # GET: Obtener grupos, rotación semanal, choferes auto-asignados y pagos pendientes
+    path('admin/roles/config/', RolesConfigView.as_view(), name='roles_config'),
+    
+    # POST: Crear/Actualizar grupo con sus días (dispara rebalanceo automático)
+    path('admin/roles/guardar/', GuardarReglaRolView.as_view(), name='roles_guardar'),
+    
+    # POST: Eliminar grupo (dispara redistribución automática de choferes)
+    path('admin/roles/eliminar-grupo/', EliminarGrupoRolView.as_view(), name='roles_eliminar_grupo'),
+    
+    # POST: Confirmar recepción de pago en efectivo por el admin y liberar rol
+    path('admin/roles/confirmar-pago/', ConfirmarPagoEfectivoView.as_view(), name='roles_confirmar_pago'),
 
 
     # =====================================================

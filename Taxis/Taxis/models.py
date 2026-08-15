@@ -100,6 +100,22 @@ class Chofer(models.Model):
     longitud = models.FloatField(default=0.0, db_index=True)
     ultima_actualizacion = models.DateTimeField(auto_now=True)
 
+    def save(self, *args, **kwargs):
+        # ASIGNACIÓN AUTOMÁTICA DE GRUPO AL APROBAR O ACTIVAR UN CHOFER
+        es_nuevo_o_cambio_estado = False
+        if self.pk:
+            anterior = Chofer.objects.filter(pk=self.pk).first()
+            if anterior and anterior.estado == 'pendiente' and self.estado == 'activo':
+                es_nuevo_o_cambio_estado = True
+        elif self.estado == 'activo':
+            es_nuevo_o_cambio_estado = True
+
+        super().save(*args, **kwargs)
+
+        # Si se acaba de activar y no tiene grupo, se ejecuta la asignación automática
+        if (es_nuevo_o_cambio_estado or not self.grupo_rol) and self.estado != 'pendiente':
+            from .utils_roles import asignar_grupo_automatico_a_chofer
+            asignar_grupo_automatico_a_chofer(self)
 
     def pagar_rol(self, monto):
         from django.utils import timezone
@@ -326,14 +342,21 @@ class Notificacion(models.Model):
 
 class PagoRol(models.Model):
     ESTADOS = (
-        ('pendiente', 'Pendiente'),
-        ('pagado', 'Pagado'),
+        ('pendiente', 'Pendiente de Confirmación'),
+        ('pagado', 'Pagado / Liberado'),
+        ('rechazado', 'Rechazado'),
+    )
+    METODOS = (
+        ('efectivo', 'Efectivo'),
+        ('transferencia', 'Transferencia'),
     )
     chofer = models.ForeignKey(Chofer, on_delete=models.CASCADE, related_name='pagos_rol')
     monto = models.DecimalField(max_digits=10, decimal_places=2)
+    metodo_pago = models.CharField(max_length=20, choices=METODOS, default='efectivo')
     fecha_pago = models.DateTimeField(auto_now_add=True)
-    estado = models.CharField(max_length=20, choices=ESTADOS, default='pagado')
+    estado = models.CharField(max_length=20, choices=ESTADOS, default='pendiente')
+    liberado_por = models.ForeignKey('PerfilUsuario', on_delete=models.SET_NULL, null=True, blank=True, related_name='roles_liberados')
     
     def __str__(self):
-        return f"Pago de rol - {self.chofer} - ${self.monto}"
+        return f"Pago Rol #{self.id} - Chofer: {self.chofer.perfil.nombre} - ${self.monto}"
     
