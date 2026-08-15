@@ -44,15 +44,17 @@ def _serializar_chofer(c: Chofer) -> dict:
 
 
 class ListaChoferesView(APIView):
-    """GET: pendientes + activos. Antes: parte GET de api_gestion_choferes."""
+    """GET: pendientes + flota registrada (activos, en_ruta, inactivos)."""
     permission_classes = [IsAuthenticated, EsAdmin]
 
     def get(self, request):
         pendientes = Chofer.objects.filter(estado="pendiente").select_related(
             "perfil", "vehiculo"
         )
-        activos = Chofer.objects.filter(
-            estado__in=["activo", "en_ruta"]
+        
+        # Excluimos 'pendiente' para incluir 'activo', 'en_ruta' e 'inactivo'
+        activos = Chofer.objects.exclude(
+            estado="pendiente"
         ).select_related("perfil", "vehiculo")
 
         return Response(

@@ -16,6 +16,7 @@ export default function GestionChoferes() {
       .then((res) => res.json())
       .then((data) => {
         setPendientes(data.pendientes || []);
+        // Recibe todos los choferes registrados (activo, en_ruta, inactivo)
         setActivos(data.activos || []);
       })
       .catch((err) => console.error("Error al cargar choferes:", err));
@@ -47,7 +48,7 @@ export default function GestionChoferes() {
       
       if (!contentType || !contentType.includes("application/json")) {
         console.error(`Respuesta no válida del servidor (${res.status}).`);
-        alert(`Error (${res.status}): Verifica la ruta '/api/v1/admin/choferes/${chofer_id}/' enurls.py.`);
+        alert(`Error (${res.status}): Verifica la ruta '/api/v1/admin/choferes/${chofer_id}/' en urls.py.`);
         return;
       }
 
@@ -80,6 +81,35 @@ export default function GestionChoferes() {
     } else {
       alert("No se pudo dar de baja al conductor.");
     }
+  };
+
+  // Renderiza la etiqueta del estado según los 3 valores del modelo de Django
+  const obtenerBadgeEstado = (estado, estadoDisplay) => {
+    if (estado === 'en_ruta') {
+      return (
+        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-bold uppercase tracking-wider bg-amber-50 text-amber-700 border border-amber-200/60">
+          <span className="w-1.5 h-1.5 rounded-full mr-1.5 bg-amber-500 animate-pulse"></span>
+          {estadoDisplay || 'En Ruta'}
+        </span>
+      );
+    }
+
+    if (estado === 'activo') {
+      return (
+        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-bold uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200/60">
+          <span className="w-1.5 h-1.5 rounded-full mr-1.5 bg-emerald-500 animate-pulse"></span>
+          {estadoDisplay || 'Disponible'}
+        </span>
+      );
+    }
+
+    // Estado 'inactivo' (cuando finalizan turno en la App)
+    return (
+      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-bold uppercase tracking-wider bg-slate-100 text-slate-600 border border-slate-200/60">
+        <span className="w-1.5 h-1.5 rounded-full mr-1.5 bg-slate-400"></span>
+        {estadoDisplay || 'Fuera de Turno'}
+      </span>
+    );
   };
 
   return (
@@ -133,13 +163,13 @@ export default function GestionChoferes() {
                     className="hover:bg-amber-50/30 cursor-pointer transition active:bg-amber-100/50"
                   >
                     <td className="p-3 sm:p-4 pl-4 sm:pl-6 font-bold text-slate-900">
-                      {p.perfil.nombre} {p.perfil.apellido}
+                      {p.perfil?.nombre} {p.perfil?.apellido}
                     </td>
-                    <td className="p-3 sm:p-4 text-slate-600">{p.perfil.telefono || 'Sin teléfono'}</td>
+                    <td className="p-3 sm:p-4 text-slate-600">{p.perfil?.telefono || 'Sin teléfono'}</td>
                     <td className="p-3 sm:p-4 text-slate-600">
-                      {p.vehiculo.marca} {p.vehiculo.modelo}
+                      {p.vehiculo ? `${p.vehiculo.marca} ${p.vehiculo.modelo}` : 'Sin vehículo'}
                     </td>
-                    <td className="p-3 sm:p-4 font-mono font-bold text-slate-700">{p.vehiculo.placas}</td>
+                    <td className="p-3 sm:p-4 font-mono font-bold text-slate-700">{p.vehiculo?.placas || 'N/A'}</td>
                     <td className="p-3 sm:p-4 text-center pr-4 sm:pr-6" onClick={(e) => e.stopPropagation()}>
                       <div className="flex justify-center space-x-1.5">
                         <button
@@ -170,11 +200,16 @@ export default function GestionChoferes() {
         </div>
       </div>
 
-      {/* TABLA 2: ACTIVOS */}
+      {/* TABLA 2: REGISTRO GENERAL DE CONDUCTORES */}
       <div className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="p-4 sm:p-6 border-b border-slate-100">
-          <h2 className="text-sm sm:text-base font-bold text-slate-900">Choferes Activos / En Ruta</h2>
-          <p className="text-xs text-slate-400 mt-0.5">Selecciona cualquier chofer registrado para inspeccionar su expediente</p>
+        <div className="p-4 sm:p-6 border-b border-slate-100 flex items-center justify-between">
+          <div>
+            <h2 className="text-sm sm:text-base font-bold text-slate-900">Conductores Registrados</h2>
+            <p className="text-xs text-slate-400 mt-0.5">Selecciona cualquier chofer para inspeccionar su expediente</p>
+          </div>
+          <span className="bg-slate-100 text-slate-700 text-xs font-bold px-3 py-1 rounded-full">
+            {activos.length} registrados
+          </span>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse min-w-[500px]">
@@ -183,7 +218,7 @@ export default function GestionChoferes() {
                 <th className="p-3 sm:p-4 pl-4 sm:pl-6">Nombre</th>
                 <th className="p-3 sm:p-4">Vehículo</th>
                 <th className="p-3 sm:p-4">Placas</th>
-                <th className="p-3 sm:p-4 pr-4 sm:pr-6">Estado</th>
+                <th className="p-3 sm:p-4 pr-4 sm:pr-6">Estado del Turno</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-xs sm:text-sm">
@@ -195,29 +230,23 @@ export default function GestionChoferes() {
                     className="hover:bg-slate-100/70 cursor-pointer transition active:bg-slate-200"
                   >
                     <td className="p-3 sm:p-4 pl-4 sm:pl-6 font-semibold text-slate-900">
-                      {c.perfil.nombre} {c.perfil.apellido}
+                      {c.perfil?.nombre} {c.perfil?.apellido}
                     </td>
                     <td className="p-3 sm:p-4 text-slate-600">
-                      {c.vehiculo.marca} {c.vehiculo.modelo}
+                      {c.vehiculo ? `${c.vehiculo.marca} ${c.vehiculo.modelo}` : 'Sin vehículo'}
                     </td>
-                    <td className="p-3 sm:p-4 font-mono font-bold text-slate-700">{c.vehiculo.placas}</td>
+                    <td className="p-3 sm:p-4 font-mono font-bold text-slate-700">
+                      {c.vehiculo?.placas || 'N/A'}
+                    </td>
                     <td className="p-3 sm:p-4 pr-4 sm:pr-6">
-                      <span
-                        className={`inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-bold uppercase tracking-wider ${
-                          c.estado === 'en_ruta'
-                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/60'
-                            : 'bg-blue-50 text-blue-700 border border-blue-200/60'
-                        }`}
-                      >
-                        {c.estado_display}
-                      </span>
+                      {obtenerBadgeEstado(c.estado, c.estado_display)}
                     </td>
                   </tr>
                 ))
               ) : (
                 <tr>
                   <td colSpan="4" className="p-6 text-center text-slate-400 text-xs sm:text-sm">
-                    No hay choferes activos registrados en el sistema.
+                    No hay choferes registrados en el sistema.
                   </td>
                 </tr>
               )}
@@ -226,7 +255,7 @@ export default function GestionChoferes() {
         </div>
       </div>
 
-      {/* EXPEDIENTE SLIDE-OVER (AJUSTADO PARA RESPONSIVE Y SIN EMPALMAR NAVBAR) */}
+      {/* EXPEDIENTE SLIDE-OVER */}
       {choferDetalle && (
         <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex justify-end">
           <div className="bg-white w-full sm:w-[450px] h-full shadow-2xl p-5 sm:p-6 overflow-y-auto flex flex-col justify-between">
@@ -239,7 +268,7 @@ export default function GestionChoferes() {
                     Expediente Digital
                   </span>
                   <h3 className="text-lg sm:text-xl font-bold text-slate-900 mt-2">
-                    {choferDetalle.perfil.nombre} {choferDetalle.perfil.apellido}
+                    {choferDetalle.perfil?.nombre} {choferDetalle.perfil?.apellido}
                   </h3>
                   <p className="text-xs text-slate-400">ID Operador: #{choferDetalle.id}</p>
                 </div>
@@ -257,19 +286,19 @@ export default function GestionChoferes() {
                 <div className="bg-slate-50 rounded-2xl p-3.5 sm:p-4 space-y-2 text-xs">
                   <div className="flex justify-between">
                     <span className="text-slate-400">Teléfono:</span>
-                    <span className="font-bold text-slate-800">{choferDetalle.perfil.telefono || 'Sin registro'}</span>
+                    <span className="font-bold text-slate-800">{choferDetalle.perfil?.telefono || 'Sin registro'}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-400">Correo:</span>
-                    <span className="font-bold text-slate-800 truncate max-w-[180px] sm:max-w-none">{choferDetalle.perfil.email}</span>
+                    <span className="font-bold text-slate-800 truncate max-w-[180px] sm:max-w-none">{choferDetalle.perfil?.email}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-400">Grupo / Turno:</span>
-                    <span className="font-bold text-amber-600">⚡ {choferDetalle.grupo_rol}</span>
+                    <span className="text-slate-400">Estado Actual:</span>
+                    <span className="font-bold">{obtenerBadgeEstado(choferDetalle.estado, choferDetalle.estado_display)}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-400">Fecha de Registro:</span>
-                    <span className="font-medium text-slate-600">{choferDetalle.perfil.fecha_registro}</span>
+                    <span className="font-medium text-slate-600">{choferDetalle.perfil?.fecha_registro || 'Reciente'}</span>
                   </div>
                 </div>
               </div>
@@ -287,7 +316,7 @@ export default function GestionChoferes() {
                     </div>
                     <div className="grid grid-cols-2 gap-2 text-xs text-slate-300 border-t border-slate-800 pt-3">
                       <div>Año: <b className="text-white">{choferDetalle.vehiculo.anio || 'N/A'}</b></div>
-                      <div>Color: <b className="text-white">{choferDetalle.vehiculo.color}</b></div>
+                      <div>Color: <b className="text-white">{choferDetalle.vehiculo.color || 'N/A'}</b></div>
                     </div>
                   </div>
                 ) : (
@@ -316,7 +345,7 @@ export default function GestionChoferes() {
           <div className="bg-white rounded-3xl max-w-sm w-full p-6 space-y-4 shadow-2xl">
             <h3 className="text-lg font-extrabold text-red-600">Baja por Incidencia</h3>
             <p className="text-xs text-slate-500 leading-relaxed">
-              Ingresa la justificación de la baja para <b className="text-slate-900">{choferDetalle?.perfil.nombre}</b>:
+              Ingresa la justificación de la baja para <b className="text-slate-900">{choferDetalle?.perfil?.nombre}</b>:
             </p>
             <textarea
               value={motivoIncidencia}
