@@ -89,33 +89,43 @@ export default function Dashboard() {
   // CARGA INICIAL (HTTP REST)
   // =========================================================
   const cargarChoferesIniciales = async () => {
-    try {
-      const token = localStorage.getItem('token') || '';
-      const res = await fetch('/api/v1/admin/choferes/', {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
+  const token = localStorage.getItem('token');
+  
+  // Si no hay token, no realizamos la petición vacía
+  if (!token) {
+    console.warn('⚠️ No se encontró token JWT en localStorage.');
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/v1/admin/choferes/', {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (res.status === 401) {
+      console.error('❌ Token inválido o expirado');
+      // Opcional: redirigir a /login
+      return;
+    }
+
+    if (res.ok) {
+      const data = await res.json();
+      const lista = Array.isArray(data) ? data : (data.results || []);
+      setChoferes(lista);
+      
+      lista.forEach((c) => {
+        if (c.estado !== 'Inactivo' && c.estado !== 'inactivo') {
+          dibujarOActualizarMarcador(c);
         }
       });
-      
-      if (res.ok) {
-        const data = await res.json();
-        // Ajusta esto dependiendo de si tu API devuelve paginación o un array directo
-        const lista = Array.isArray(data) ? data : (data.results || []);
-        
-        setChoferes(lista);
-
-        // Dibujar en el mapa todos los choferes que estén activos al recargar la página
-        lista.forEach((c) => {
-          if (c.estado !== 'Inactivo' && c.estado !== 'inactivo') {
-            dibujarOActualizarMarcador(c);
-          }
-        });
-      }
-    } catch (err) {
-      console.error('❌ Error cargando lista inicial de choferes:', err);
     }
-  };
+  } catch (err) {
+    console.error('❌ Error al consultar la API:', err);
+  }
+};
 
   // =========================================================
   // EFECTO PRINCIPAL (INICIALIZAR MAPA Y WEBSOCKET)
