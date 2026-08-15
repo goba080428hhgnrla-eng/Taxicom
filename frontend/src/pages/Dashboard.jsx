@@ -1,124 +1,285 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { conectarWebSocket, suscribirWebSocket, obtenerUsuario, apiFetch } from '../api.js';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+import { apiFetch } from '../api';
+
+const taxiIcon = L.icon({
+  iconUrl: 'https://cdn-icons-png.flaticon.com/512/3448/3448339.png',
+  iconSize: [36, 36],
+  iconAnchor: [18, 18],
+  popupAnchor: [0, -18],
+});
 
 export default function Dashboard() {
-  const [usuario] = useState(obtenerUsuario());
-  const [choferes, setChoferes] = useState({});
-  const [solicitudes, setSolicitudes] = useState([]);
+  const [choferes, setChoferes] = useState([]);
+  const [selectedDriver, setSelectedDriver] = useState(null);
+  const [wsStatus, setWsStatus] = useState('Conectando...');
+
   const mapRef = useRef(null);
-  const leafletMap = useRef(null);
-  const markersRef = useRef({});
+  const mapInstance = useRef(null);
+  const markers = useRef({});
+  const socketRef = useRef(null);
+  const reconnectTimeout = useRef(null);
+  const pingInterval = useRef(null);
 
-  // Cargar librerías CDN de Leaflet en caliente
-  useEffect(() => {
-    if (!document.getElementById('leaflet-css')) {
-      const link = document.createElement('link');
-      link.id = 'leaflet-css';
-      link.rel = 'stylesheet';
-      link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-      document.head.appendChild(link);
+  // =========================================================
+  // ANIMACIÓN Y ELIMINACIÓN DE MARCADORES
+  // =========================================================
+
+  const removerMarcador = (id) => {
+    if (markers.current[id]) {
+      mapInstance.current?.removeLayer(markers.current[id]);
+      delete markers.current[id];
+    }
+  };
+
+  const moverMarcadorFluidamente = (marker, targetLat, targetLng, duracion = 2000) => {
+    const startLatLng = marker.getLatLng();
+    const startLat = startLatLng.lat;
+    const startLng = startLatLng.lng;
+
+    if (startLat === targetLat && startLng === targetLng) return;
+
+    const startTime = performance.now();
+
+    function animar(currentTime) {
+      const elapsedTime = currentTime - startTime;
+      const progress = Math.min(elapsedTime / duracion, 1);
+
+      const currentLat = startLat + (targetLat - startLat) * progress;
+      const currentLng = startLng + (targetLng - startLng) * progress;
+
+      marker.setLatLng([currentLat, currentLng]);
+
+      if (progress < 1) {
+        requestAnimationFrame(animar);
+      }
     }
 
-    if (!window.L) {
-      const script = document.createElement('script');
-      script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-      script.onload = () => initMap();
-      document.head.appendChild(script);
+    requestAnimationFrame(animar);
+  };
+
+  const crearOActualizarMarcador = (id, lat, lng, nombre, auto, sketchfabId, asientos) => {
+    if (!lat || !lng || parseFloat(lat) === 0.0) return;
+
+    const popupContent = `
+      <div style="width:240px; padding:4px; font-family:sans-serif;">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <div>
+            <div style="font-size:10px; color:#94a3b8;">CONDUCTOR</div>
+            <div style="font-size:14px; font-weight:bold;">${nombre}</div>
+          </div>
+          <span>🚕</span>
+        </div>
+        <div style="margin-top:8px; padding:8px; background:#f8fafc; border-radius:8px;">
+          <div style="font-size:10px; color:#94a3b8;">VEHÍCULO</div>
+          <div style="font-size:12px; font-weight:600;">${auto}</div>
+        </div>
+        <div style="margin-top:6px; font-size:12px;">
+          Asientos libres: <b>${asientos}</b>
+        </div>
+      </div>
+    `;
+
+    if (markers.current[id]) {
+      moverMarcadorFluidamente(markers.current[id], parseFloat(lat), parseFloat(lng));
+      markers.current[id].getPopup().setContent(popupContent);
     } else {
-      initMap();
+      markers.current[id] = L.marker([parseFloat(lat), parseFloat(lng)], { icon: taxiIcon })
+        .addTo(mapInstance.current)
+        .bindPopup(popupContent);
+    }
+  };
+
+  // =========================================================
+  // WEBSOCKET (con token + reconexión)
+  // =========================================================
+
+  const conectarWebSocket = () => {
+    // CORRECCIÓN 1: Usar la clave exacta guardada por api.js ('taxicom_access')
+    const accessToken = localStorage.getItem('taxicom_access');
+
+    if (!accessToken) {
+      console.error('No hay access token disponible, no se puede abrir el WebSocket');
+      setWsStatus('Sin token');
+      return;
     }
 
-    function initMap() {
-      if (mapRef.current && !leafletMap.current && window.L) {
-        leafletMap.current = window.L.map(mapRef.current).setView([19.432608, -99.133209], 13);
-        window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-          attribution: '&copy; OpenStreetMap contributors'
-        }).addTo(leafletMap.current);
-      }
-    }
-  }, []);
+    // CORRECCIÓN 2: Conectar directamente al host de Render mediante wss://
+    const wsUrl = `wss://taxicom.onrender.com/ws/colectivos/?token=${encodeURIComponent(accessToken)}`;
+    const socket = new WebSocket(wsUrl);
+    socketRef.current = socket;
 
-  // Escuchar conexiones WebSocket y actualizar el mapa Leaflet en vivo
-  useEffect(() => {
-    async function cargarIniciales() {
-      try {
-        const res = await apiFetch('/api/v1/choferes/activos/');
-        if (res.ok) {
-          const data = await res.json();
-          const mapaData = {};
-          data.forEach(c => { if(c.lat && c.lng) mapaData[c.id || c.chofer_id] = c; });
-          setChoferes(mapaData);
+    socket.onopen = () => {
+      setWsStatus('WebSocket Conectado');
+
+      // Mantener viva la conexión con Ping cada 25 segundos
+      if (pingInterval.current) clearInterval(pingInterval.current);
+      pingInterval.current = setInterval(() => {
+        if (socket.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify({ action: 'ping' }));
         }
-      } catch (e) {
-        console.error(e);
+      }, 25000);
+    };
+
+    socket.onmessage = (e) => {
+      const data = JSON.parse(e.data);
+
+      if (data.event === 'pong') return;
+
+      // CASO 1: CHOFER FINALIZÓ TURNO O SE DESCONECTÓ
+      if (data.event === 'chofer_desconectado') {
+        removerMarcador(data.chofer_id);
+        setChoferes((prev) => prev.filter((c) => c.chofer_id !== data.chofer_id));
+        return;
       }
+
+      // CASO 2: ACTUALIZACIÓN DE UBICACIÓN
+      if (data.event === 'ubicacion_actualizada' || data.lat) {
+        crearOActualizarMarcador(
+          data.chofer_id,
+          data.lat,
+          data.lng,
+          data.nombre || 'Chofer en Ruta',
+          data.vehiculo || 'Vehículo Activo',
+          data.sketchfab_id || '',
+          data.asientos_disponibles ?? 0
+        );
+
+        setChoferes((prev) => {
+          const existe = prev.some((c) => c.chofer_id === data.chofer_id);
+          if (!existe) {
+            return [
+              ...prev,
+              {
+                chofer_id: data.chofer_id,
+                nombre: data.nombre || 'Chofer en Ruta',
+                vehiculo: data.vehiculo || 'Vehículo Activo',
+                asientos_disponibles: data.asientos_disponibles ?? 0,
+                estado: 'En Ruta',
+              },
+            ];
+          }
+          return prev.map((c) =>
+            c.chofer_id === data.chofer_id
+              ? {
+                  ...c,
+                  lat: data.lat,
+                  lng: data.lng,
+                  asientos_disponibles: data.asientos_disponibles ?? c.asientos_disponibles,
+                  estado: 'En Ruta',
+                }
+              : c
+          );
+        });
+      }
+    };
+
+    socket.onclose = (e) => {
+      setWsStatus(`Desconectado (code ${e.code})`);
+      if (pingInterval.current) clearInterval(pingInterval.current);
+
+      // 4001: Token inválido/expirado -> No reintentar en bucle
+      if (e.code !== 4001 && e.code !== 1000) {
+        reconnectTimeout.current = setTimeout(conectarWebSocket, 3000);
+      } else if (e.code === 4001) {
+        console.error('WebSocket rechazado por autenticación (code 4001)');
+      }
+    };
+
+    socket.onerror = () => {
+      socket.close();
+    };
+  };
+
+  useEffect(() => {
+    // Inicialización del Mapa
+    if (!mapInstance.current) {
+      mapInstance.current = L.map(mapRef.current, { zoomControl: false }).setView([19.727, -99.508], 13);
+      L.control.zoom({ position: 'bottomright' }).addTo(mapInstance.current);
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+        attribution: '© OpenStreetMap © CARTO',
+      }).addTo(mapInstance.current);
     }
 
-    cargarIniciales();
+    // Carga inicial por API
+    apiFetch('/api/v1/choferes/activos/')
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => {
+        const lista = Array.isArray(data) ? data : data.choferes || [];
+        setChoferes(lista);
+        lista.forEach((c) => {
+          crearOActualizarMarcador(
+            c.chofer_id || c.id,
+            c.lat,
+            c.lng,
+            c.nombre,
+            c.vehiculo,
+            c.sketchfab_id,
+            c.asientos_disponibles
+          );
+        });
+      })
+      .catch((err) => console.error('Error cargando flota:', err));
+
+    // Iniciar WebSocket
     conectarWebSocket();
 
-    const desuscribir = suscribirWebSocket((mensaje) => {
-      if (mensaje.event === 'ubicacion_actualizada') {
-        setChoferes((prev) => ({
-          ...prev,
-          [mensaje.chofer_id]: {
-            chofer_id: mensaje.chofer_id,
-            nombre: mensaje.nombre || `Chofer #${mensaje.chofer_id}`,
-            lat: parseFloat(mensaje.lat),
-            lng: parseFloat(mensaje.lng),
-            vehiculo: mensaje.vehiculo || 'Taxi',
-            modalidad: mensaje.modalidad || 'COLECTIVO'
-          }
-        }));
-      } else if (mensaje.event === 'nuevo_cliente_colectivo') {
-        setSolicitudes((prev) => [mensaje, ...prev]);
+    return () => {
+      if (reconnectTimeout.current) clearTimeout(reconnectTimeout.current);
+      if (pingInterval.current) clearInterval(pingInterval.current);
+      socketRef.current?.close();
+      if (mapInstance.current) {
+        mapInstance.current.remove();
+        mapInstance.current = null;
       }
-    });
-
-    return () => desuscribir();
+    };
   }, []);
 
-  // Actualizar los marcadores en el mapa cuando cambie el estado de choferes
-  useEffect(() => {
-    if (!leafletMap.current || !window.L) return;
-
-    Object.values(choferes).forEach((c) => {
-      const { chofer_id, lat, lng, nombre, vehiculo } = c;
-      if (!lat || !lng) return;
-
-      if (markersRef.current[chofer_id]) {
-        // Mover marcador existente
-        markersRef.current[chofer_id].setLatLng([lat, lng]);
-      } else {
-        // Crear nuevo marcador
-        const marker = window.L.marker([lat, lng]).addTo(leafletMap.current);
-        marker.bindPopup(`<b>${nombre}</b><br/>${vehiculo}`);
-        markersRef.current[chofer_id] = marker;
-      }
-    });
-  }, [choferes]);
-
-  const listaChoferes = Object.values(choferes);
+  const seleccionarConductor = (chofer) => {
+    setSelectedDriver(chofer.chofer_id);
+    const marker = markers.current[chofer.chofer_id];
+    if (marker && mapInstance.current) {
+      mapInstance.current.flyTo(marker.getLatLng(), 16, { duration: 0.8 });
+      marker.openPopup();
+    }
+  };
 
   return (
-    <div style={{ padding: '20px', fontFamily: 'sans-serif' }}>
-      <h2>🚖 Dashboard Taxicom</h2>
-      <p>Usuario: <b>{usuario?.username || 'Admin'}</b></p>
+    <div className="min-h-screen w-full bg-slate-50 text-slate-900 flex flex-col">
+      <header className="w-full h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8">
+        <p className="font-bold text-lg">CentralTaxi Admin</p>
+        <span className={`text-xs px-3 py-1 rounded-full font-semibold ${
+          wsStatus.includes('Conectado') ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
+        }`}>
+          {wsStatus}
+        </span>
+      </header>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr', gap: '20px', height: '80vh' }}>
-        <div style={{ background: '#f5f5f5', padding: '15px', borderRadius: '8px', overflowY: 'auto' }}>
-          <h3>Choferes Activos ({listaChoferes.length})</h3>
-          {listaChoferes.map((c) => (
-            <div key={c.chofer_id} style={{ background: '#fff', padding: '10px', marginBottom: '10px', borderRadius: '5px' }}>
-              <strong>{c.nombre}</strong><br />
-              <small>📍 {c.lat?.toFixed(4)}, {c.lng?.toFixed(4)}</small>
-            </div>
-          ))}
+      <main className="flex-1 w-full p-4 overflow-hidden">
+        <div className="w-full h-full grid grid-cols-12 gap-4">
+          <aside className="col-span-3 bg-white rounded-2xl border border-slate-200 p-4 overflow-y-auto">
+            <h2 className="font-bold text-lg mb-4">Vehículos Activos ({choferes.length})</h2>
+            {choferes.map((c) => (
+              <button
+                key={c.chofer_id}
+                onClick={() => seleccionarConductor(c)}
+                className={`w-full text-left p-3 mb-2 rounded-xl border transition-all ${
+                  selectedDriver === c.chofer_id ? 'bg-slate-900 text-white' : 'bg-white hover:bg-slate-50'
+                }`}
+              >
+                <div className="font-semibold text-sm">{c.nombre}</div>
+                <div className="text-xs opacity-70">{c.vehiculo}</div>
+                <div className="text-xs mt-2">Free seats: {c.asientos_disponibles ?? 0}</div>
+              </button>
+            ))}
+          </aside>
+
+          <section className="col-span-9 relative bg-white rounded-2xl border border-slate-200 overflow-hidden min-h-[500px]">
+            <div ref={mapRef} className="absolute inset-0 z-0" />
+          </section>
         </div>
-
-        {/* Contenedor del Mapa */}
-        <div ref={mapRef} style={{ width: '100%', height: '100%', borderRadius: '8px' }} />
-      </div>
+      </main>
     </div>
   );
 }
