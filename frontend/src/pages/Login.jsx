@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { guardarSesion, cerrarSesion } from '../api';
+import { guardarSesion, cerrarSesion } from '../api.js'; 
 
 export default function Login() {
   const [formData, setFormData] = useState({

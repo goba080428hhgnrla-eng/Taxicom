@@ -1,7 +1,6 @@
 import React from 'react';
 import { Navigate } from 'react-router-dom';
-import { haySesion, obtenerUsuario } from '../api';
-
+import { haySesion, obtenerUsuario } from '../api.js'; 
 export default function RutaProtegida({ children }) {
   if (!haySesion()) {
     return <Navigate to="/login" replace />;
