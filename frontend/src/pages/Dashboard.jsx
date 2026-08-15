@@ -1,322 +1,294 @@
 import React, { useEffect, useState, useRef } from 'react';
 import L from 'leaflet';
-import { apiFetch } from '../api';
-
-const taxiIcon = L.icon({
-  iconUrl: 'https://cdn-icons-png.flaticon.com/512/3448/3448339.png',
-  iconSize: [36, 36],
-  iconAnchor: [18, 18],
-  popupAnchor: [0, -18],
-});
+import 'leaflet/dist/leaflet.css'; // Asegúrate de tener importados los estilos de Leaflet
 
 export default function Dashboard() {
   const [choferes, setChoferes] = useState([]);
   const [selectedDriver, setSelectedDriver] = useState(null);
-  const [wsStatus, setWsStatus] = useState('Conectando...');
-
+  
   const mapRef = useRef(null);
   const mapInstance = useRef(null);
   const markers = useRef({});
   const socketRef = useRef(null);
-  const reconnectTimeout = useRef(null);
 
-  // Helper para validar y extraer coordenadas
+  // =========================================================
+  // ICONO PERSONALIZADO PARA LEAFLET
+  // =========================================================
+  const taxiIcon = L.icon({
+    iconUrl: 'https://cdn-icons-png.flaticon.com/512/3448/3448339.png', // Cambia por tu propio icono si lo deseas
+    iconSize: [35, 35],
+    iconAnchor: [17, 35],
+    popupAnchor: [0, -35],
+  });
+
+  // =========================================================
+  // HELPER: OBTENER COORDENADAS (ACEPTA 0.0)
+  // =========================================================
   const obtenerCoordenadas = (data) => {
-  // Leemos latitud/longitud que viene del backend de Django
-  const lat = data.latitud ?? data.lat;
-  const lng = data.longitud ?? data.lng;
+    // Lee las variables exactas que manda tu backend en Django (choferes.py)
+    const lat = data.latitud ?? data.lat;
+    const lng = data.longitud ?? data.lng;
 
-  if (lat === undefined || lng === undefined || lat === null || lng === null) {
-    return null;
-  }
+    if (lat === undefined || lng === undefined || lat === null || lng === null) {
+      return null;
+    }
 
-  const latFloat = parseFloat(lat);
-  const lngFloat = parseFloat(lng);
+    const latFloat = parseFloat(lat);
+    const lngFloat = parseFloat(lng);
 
-  if (isNaN(latFloat) || isNaN(lngFloat)) {
-    return null;
-  }
+    if (isNaN(latFloat) || isNaN(lngFloat)) return null;
 
-  return { lat: latFloat, lng: lngFloat };
-};
+    return { lat: latFloat, lng: lngFloat };
+  };
 
-  const removerMarcador = (id) => {
+  // =========================================================
+  // HELPER: DIBUJAR O ACTUALIZAR MARCADOR
+  // =========================================================
+  const dibujarOActualizarMarcador = (chofer) => {
+    const coords = obtenerCoordenadas(chofer);
+    if (!coords) return; // Si no hay coordenadas válidas (NaN/null), no dibujamos
+
+    const id = chofer.chofer_id || chofer.id;
+    const nombre = chofer.nombre || 'Chofer Activo';
+    const vehiculo = chofer.vehiculo || 'Vehículo';
+    const asientos = chofer.asientos_disponibles ?? 0;
+
+    const popupContent = `
+      <div style="font-family:sans-serif; min-width:150px;">
+        <div style="font-size:14px; font-weight:bold;">${nombre}</div>
+        <div style="font-size:12px; color:#64748b; margin-top:2px;">${vehiculo}</div>
+        <div style="font-size:12px; margin-top:6px; background:#f1f5f9; padding:4px; border-radius:4px;">
+          Asientos libres: <b>${asientos}</b>
+        </div>
+      </div>
+    `;
+
     if (markers.current[id]) {
-      mapInstance.current?.removeLayer(markers.current[id]);
+      // Si el marcador ya existe, lo movemos y actualizamos la info
+      markers.current[id].setLatLng([coords.lat, coords.lng]);
+      markers.current[id].getPopup().setContent(popupContent);
+    } else if (mapInstance.current) {
+      // Si no existe, lo creamos y lo añadimos al mapa
+      markers.current[id] = L.marker([coords.lat, coords.lng], { icon: taxiIcon })
+        .addTo(mapInstance.current)
+        .bindPopup(popupContent);
+    }
+  };
+
+  // =========================================================
+  // HELPER: QUITAR MARCADOR DEL MAPA
+  // =========================================================
+  const removerMarcador = (id) => {
+    if (markers.current[id] && mapInstance.current) {
+      mapInstance.current.removeLayer(markers.current[id]);
       delete markers.current[id];
     }
   };
 
-  const moverMarcadorFluidamente = (marker, targetLat, targetLng, duracion = 2000) => {
-    const startLatLng = marker.getLatLng();
-    const startLat = startLatLng.lat;
-    const startLng = startLatLng.lng;
-
-    if (startLat === targetLat && startLng === targetLng) return;
-
-    const startTime = performance.now();
-
-    function animar(currentTime) {
-      const elapsedTime = currentTime - startTime;
-      const progress = Math.min(elapsedTime / duracion, 1);
-
-      const currentLat = startLat + (targetLat - startLat) * progress;
-      const currentLng = startLng + (targetLng - startLng) * progress;
-
-      marker.setLatLng([currentLat, currentLng]);
-
-      if (progress < 1) {
-        requestAnimationFrame(animar);
-      }
-    }
-
-    requestAnimationFrame(animar);
-  };
-
-  const crearOActualizarMarcador = (id, lat, lng, nombre, auto, asientos) => {
-  if (lat === undefined || lng === undefined || lat === null || lng === null) return;
-
-  const popupContent = `
-    <div style="width:240px; padding:4px; font-family:sans-serif;">
-      <div style="display:flex; justify-content:space-between; align-items:center;">
-        <div>
-          <div style="font-size:10px; color:#94a3b8;">CONDUCTOR</div>
-          <div style="font-size:14px; font-weight:bold;">${nombre}</div>
-        </div>
-        <span>🚕</span>
-      </div>
-      <div style="margin-top:8px; padding:8px; background:#f8fafc; border-radius:8px;">
-        <div style="font-size:10px; color:#94a3b8;">VEHÍCULO</div>
-        <div style="font-size:12px; font-weight:600;">${auto}</div>
-      </div>
-      <div style="margin-top:6px; font-size:12px;">
-        Asientos libres: <b>${asientos}</b>
-      </div>
-    </div>
-  `;
-
-  if (markers.current[id]) {
-    moverMarcadorFluidamente(markers.current[id], lat, lng);
-    markers.current[id].getPopup().setContent(popupContent);
-  } else {
-    markers.current[id] = L.marker([lat, lng], { icon: taxiIcon })
-      .addTo(mapInstance.current)
-      .bindPopup(popupContent);
-  }
-};
-
-  const conectarWebSocket = () => {
-    const accessToken = localStorage.getItem('access_token') || localStorage.getItem('token');
-
-    if (!accessToken) {
-      setWsStatus('Sin token');
-      return;
-    }
-
-    const wsScheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    const socket = new WebSocket(
-      `${wsScheme}://${window.location.host}/ws/colectivos/?token=${accessToken}`
-    );
-    socketRef.current = socket;
-
-    socket.onopen = () => {
-      setWsStatus('WebSocket Conectado');
-    };
-
-    socket.onmessage = (e) => {
-  const data = JSON.parse(e.data);
-
-  // 1. CHOFER DESCONECTADO
-  if (data.type === 'broadcast_chofer_desconectado' || data.event === 'chofer_desconectado') {
-    removerMarcador(data.chofer_id);
-    setChoferes((prev) =>
-      prev.map((chofer) => {
-        const idActual = chofer.chofer_id || chofer.id;
-        if (idActual === data.chofer_id) {
-          return { ...chofer, estado: 'Inactivo' };
+  // =========================================================
+  // CARGA INICIAL (HTTP REST)
+  // =========================================================
+  const cargarChoferesIniciales = async () => {
+    try {
+      const token = localStorage.getItem('token') || '';
+      const res = await fetch('/api/v1/admin/choferes/', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
         }
-        return chofer;
-      })
-    );
-    return;
-  }
-
-  // 2. RECIBIR UBICACIÓN Y CREAR MARCADOR
-  const coords = obtenerCoordenadas(data);
-
-  if (data.chofer_id) {
-    // Si tenemos coordenadas válidas (incluso 0,0), creamos o movemos el marcador en Leaflet
-    if (coords) {
-      crearOActualizarMarcador(
-        data.chofer_id,
-        coords.lat,
-        coords.lng,
-        data.nombre || 'Chofer Activo',
-        data.vehiculo || 'Vehículo',
-        data.asientos_disponibles ?? 0
-      );
-    }
-
-    // Actualizamos la lista de React (Tabla / Sidebar)
-    setChoferes((prev) => {
-      const existe = prev.some((c) => (c.chofer_id || c.id) === data.chofer_id);
-
-      if (!existe) {
-        return [
-          ...prev,
-          {
-            chofer_id: data.chofer_id,
-            nombre: data.nombre || 'Chofer Activo',
-            vehiculo: data.vehiculo || 'Vehículo',
-            asientos_disponibles: data.asientos_disponibles ?? 0,
-            lat: coords ? coords.lat : 0,
-            lng: coords ? coords.lng : 0,
-            estado: data.modalidad || 'Activo',
-          },
-        ];
-      }
-
-      return prev.map((c) => {
-        const idActual = c.chofer_id || c.id;
-        if (idActual === data.chofer_id) {
-          return {
-            ...c,
-            nombre: data.nombre || c.nombre,
-            vehiculo: data.vehiculo || c.vehiculo,
-            lat: coords ? coords.lat : c.lat,
-            lng: coords ? coords.lng : c.lng,
-            asientos_disponibles: data.asientos_disponibles ?? c.asientos_disponibles,
-            estado: data.modalidad || c.estado || 'Activo',
-          };
-        }
-        return c;
       });
-    });
-  }
-};
+      
+      if (res.ok) {
+        const data = await res.json();
+        // Ajusta esto dependiendo de si tu API devuelve paginación o un array directo
+        const lista = Array.isArray(data) ? data : (data.results || []);
+        
+        setChoferes(lista);
 
-    socket.onclose = (e) => {
-      setWsStatus(`Desconectado (code ${e.code})`);
-      if (e.code !== 4001) {
-        reconnectTimeout.current = setTimeout(conectarWebSocket, 3000);
+        // Dibujar en el mapa todos los choferes que estén activos al recargar la página
+        lista.forEach((c) => {
+          if (c.estado !== 'Inactivo' && c.estado !== 'inactivo') {
+            dibujarOActualizarMarcador(c);
+          }
+        });
       }
-    };
-
-    socket.onerror = () => {
-      socket.close();
-    };
+    } catch (err) {
+      console.error('❌ Error cargando lista inicial de choferes:', err);
+    }
   };
 
+  // =========================================================
+  // EFECTO PRINCIPAL (INICIALIZAR MAPA Y WEBSOCKET)
+  // =========================================================
   useEffect(() => {
-    if (!mapInstance.current) {
-      mapInstance.current = L.map(mapRef.current, { zoomControl: false }).setView([19.727, -99.508], 13);
-      L.control.zoom({ position: 'bottomright' }).addTo(mapInstance.current);
+    // 1. Inicializar Mapa Leaflet (evita inicializarlo 2 veces)
+    if (!mapInstance.current && mapRef.current) {
+      mapInstance.current = L.map(mapRef.current).setView([19.727, -99.508], 13); // Cambia las coordenadas por tu ciudad
+      
       L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
         attribution: '© OpenStreetMap © CARTO',
       }).addTo(mapInstance.current);
+      
+      // Forzar recálculo del tamaño después del render
+      setTimeout(() => mapInstance.current?.invalidateSize(), 300);
     }
 
-    // CARGA INICIAL POR API REST
-    // Si quieres traer TODOS los choferes (incluyendo inactivos), usa la vista general de choferes
-    apiFetch('/api/v1/admin/choferes/')
-      .then((res) => res.json())
-      .then((data) => {
-        const listaChoferes = data.results || data.choferes || (Array.isArray(data) ? data : []);
-        setChoferes(listaChoferes);
+    // 2. Traer registros por API
+    cargarChoferesIniciales();
 
-        listaChoferes.forEach((c) => {
-          const coords = obtenerCoordenadas(c);
-          if (coords) {
-            crearOActualizarMarcador(
-              c.chofer_id || c.id,
-              coords.lat,
-              coords.lng,
-              c.nombre,
-              c.vehiculo,
-              c.asientos_disponibles
-            );
-          }
-        });
-      })
-      .catch((err) => console.error('Error cargando lista de choferes:', err));
+    // 3. Configurar WebSocket
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = window.location.host;
+    const token = localStorage.getItem('token') || '';
+    const wsUrl = `${protocol}//${host}/ws/colectivos/?token=${token}`;
 
-    conectarWebSocket();
+    console.log('⚡ Intentando conectar WebSocket a:', wsUrl);
+    const ws = new WebSocket(wsUrl);
+    socketRef.current = ws;
 
-    return () => {
-      if (reconnectTimeout.current) clearTimeout(reconnectTimeout.current);
-      socketRef.current?.close();
-      if (mapInstance.current) {
-        mapInstance.current.remove();
-        mapInstance.current = null;
+    ws.onopen = () => console.log('✅ WebSocket Conectado Correctamente');
+    ws.onerror = (err) => console.error('❌ Error en WebSocket:', err);
+    ws.onclose = () => console.warn('⚠️ WebSocket Cerrado');
+
+    // 4. Escuchar mensajes del WebSocket
+    ws.onmessage = (e) => {
+      const data = JSON.parse(e.data);
+      console.log('📡 Evento WS:', data);
+
+      // CASO A: Chofer Desconectado o Inactivo
+      if (data.type === 'broadcast_chofer_desconectado') {
+        removerMarcador(data.chofer_id);
+        setChoferes((prev) =>
+          prev.map((c) => {
+            const idActual = c.chofer_id || c.id;
+            if (idActual === data.chofer_id) {
+              return { ...c, estado: 'Inactivo' };
+            }
+            return c;
+          })
+        );
+        return;
       }
+
+      // CASO B: Recepción de Ubicación (Activo)
+      if (data.type === 'broadcast_ubicacion' && data.chofer_id) {
+        // Dibuja la chincheta (incluso si viene en 0.0)
+        dibujarOActualizarMarcador(data);
+
+        // Actualiza el listado lateral
+        setChoferes((prev) => {
+          const existe = prev.some((c) => (c.chofer_id || c.id) === data.chofer_id);
+
+          if (!existe) {
+            // Es un chofer nuevo que acaba de reportar ubicación
+            return [
+              ...prev,
+              {
+                chofer_id: data.chofer_id,
+                nombre: data.nombre,
+                vehiculo: data.vehiculo,
+                asientos_disponibles: data.asientos_disponibles,
+                latitud: data.latitud,
+                longitud: data.longitud,
+                estado: data.modalidad || 'Activo',
+              },
+            ];
+          }
+
+          // Es un chofer existente, actualizamos su info
+          return prev.map((c) => {
+            const idActual = c.chofer_id || c.id;
+            if (idActual === data.chofer_id) {
+              return {
+                ...c,
+                ...data, // Mezclamos la nueva data del backend (incluye latitud/longitud)
+                estado: data.modalidad || 'Activo', // Nos aseguramos de marcarlo activo
+              };
+            }
+            return c;
+          });
+        });
+      }
+    };
+
+    // 5. Limpieza al desmontar el componente
+    return () => {
+      if (socketRef.current) socketRef.current.close();
+      // Opcional: si desmontas la vista completamente, podrías destruir el mapa aquí
+      // if (mapInstance.current) { mapInstance.current.remove(); mapInstance.current = null; }
     };
   }, []);
 
-  const seleccionarConductor = (chofer) => {
-  const id = chofer.chofer_id || chofer.id;
-  setSelectedDriver(id);
-  
-  const marker = markers.current[id];
-  if (marker && mapInstance.current) {
-    mapInstance.current.flyTo(marker.getLatLng(), 15, { duration: 0.8 });
-    marker.openPopup();
-  } else if (chofer.lat !== undefined && chofer.lng !== undefined) {
-    mapInstance.current.flyTo([parseFloat(chofer.lat), parseFloat(chofer.lng)], 15, { duration: 0.8 });
-  }
-};
-
+  // =========================================================
+  // RENDER DE LA INTERFAZ
+  // =========================================================
   return (
-    <div className="min-h-screen w-full bg-slate-50 text-slate-900 flex flex-col">
-      <header className="w-full h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8">
-        <p className="font-bold text-lg">CentralTaxi Admin</p>
-        <span className="text-xs bg-emerald-50 text-emerald-700 px-3 py-1 rounded-full font-semibold">
-          {wsStatus}
-        </span>
-      </header>
+    <div className="grid grid-cols-12 h-screen w-full bg-slate-50">
+      
+      {/* SIDEBAR LISTA DE CHOFERES */}
+      <aside className="col-span-12 md:col-span-3 bg-white p-4 overflow-y-auto border-r border-slate-200 z-10 shadow-lg">
+        <h2 className="font-bold text-lg text-slate-800 mb-4">
+          Choferes en Sistema ({choferes.length})
+        </h2>
+        
+        {choferes.length === 0 && (
+          <p className="text-sm text-slate-500 text-center mt-10">No hay datos disponibles.</p>
+        )}
 
-      <main className="flex-1 w-full p-4 overflow-hidden">
-        <div className="w-full h-full grid grid-cols-12 gap-4">
-          <aside className="col-span-3 bg-white rounded-2xl border border-slate-200 p-4 overflow-y-auto">
-            <h2 className="font-bold text-lg mb-4">Lista de Choferes ({choferes.length})</h2>
-            {choferes.map((c) => {
-              const id = c.chofer_id || c.id;
-              const estaActivo = c.estado !== 'Inactivo' && c.estado !== 'inactivo';
-
-              return (
-                <button
-                  key={id}
-                  onClick={() => seleccionarConductor(c)}
-                  className={`w-full text-left p-3 mb-2 rounded-xl border transition-all ${
-                    selectedDriver === id ? 'bg-slate-900 text-white' : 'bg-white hover:bg-slate-50'
+        {choferes.map((c) => {
+          const id = c.chofer_id || c.id;
+          const estaActivo = c.estado !== 'Inactivo' && c.estado !== 'inactivo';
+          
+          return (
+            <div
+              key={id}
+              onClick={() => {
+                setSelectedDriver(id);
+                // Si existe el marcador, volamos hacia él y abrimos su popup
+                if (markers.current[id] && mapInstance.current) {
+                  mapInstance.current.flyTo(markers.current[id].getLatLng(), 16, { duration: 0.8 });
+                  markers.current[id].openPopup();
+                }
+              }}
+              className={`p-3 mb-3 rounded-xl border transition-all cursor-pointer shadow-sm
+                ${selectedDriver === id 
+                  ? 'bg-slate-800 text-white border-slate-800' 
+                  : 'bg-white hover:bg-slate-50 border-slate-200'
+                }`}
+            >
+              <div className="flex justify-between items-start">
+                <span className="font-semibold text-sm truncate pr-2">{c.nombre || 'Sin nombre'}</span>
+                
+                {/* Badge de Estado Visual */}
+                <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold whitespace-nowrap
+                  ${estaActivo 
+                    ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' 
+                    : 'bg-slate-100 text-slate-500 border border-slate-200'
                   }`}
                 >
-                  <div className="flex justify-between items-center">
-                    <div className="font-semibold text-sm">{c.nombre}</div>
-                    <span
-                      className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
-                        estaActivo ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500'
-                      }`}
-                    >
-                      {c.estado || 'Inactivo'}
-                    </span>
-                  </div>
-                  <div className="text-xs opacity-70 mt-1">{c.vehiculo}</div>
-                  <div className="text-xs mt-1 opacity-80">Asientos libres: {c.asientos_disponibles ?? 0}</div>
-                </button>
-              );
-            })}
-            {choferes.length === 0 && (
-              <p className="text-xs text-slate-400 text-center mt-8">
-                No hay choferes registrados.
-              </p>
-            )}
-          </aside>
+                  {estaActivo ? (c.estado || 'Activo').toUpperCase() : 'INACTIVO'}
+                </span>
+              </div>
+              
+              <div className={`text-xs mt-1 truncate ${selectedDriver === id ? 'text-slate-300' : 'text-slate-500'}`}>
+                {c.vehiculo || 'Vehículo desconocido'}
+              </div>
+              
+              {estaActivo && (
+                <div className={`text-xs mt-2 font-medium ${selectedDriver === id ? 'text-emerald-300' : 'text-emerald-600'}`}>
+                  Asientos libres: {c.asientos_disponibles ?? 0}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </aside>
 
-          <section className="col-span-9 relative bg-white rounded-2xl border border-slate-200 overflow-hidden min-h-[500px]">
-            <div ref={mapRef} className="absolute inset-0 z-0" />
-          </section>
-        </div>
+      {/* ÁREA DEL MAPA */}
+      <main className="col-span-12 md:col-span-9 h-full w-full relative z-0">
+        <div ref={mapRef} className="h-full w-full" style={{ minHeight: '100vh' }} />
       </main>
+
     </div>
   );
 }
