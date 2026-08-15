@@ -1,11 +1,87 @@
-import { cerrarSesion } from './api.js';
-
 const ACCESS_KEY = 'taxicom_access';
+const REFRESH_KEY = 'taxicom_refresh';
+const USUARIO_KEY = 'taxicom_usuario';
+
+// ==========================================
+// 1. GESTIÓN DE SESIÓN Y LOCALSTORAGE
+// ==========================================
+
+export function guardarSesion({ access, refresh, usuario }) {
+  localStorage.setItem(ACCESS_KEY, access);
+  localStorage.setItem(REFRESH_KEY, refresh);
+  localStorage.setItem(USUARIO_KEY, JSON.stringify(usuario));
+}
+
+export function obtenerUsuario() {
+  const raw = localStorage.getItem(USUARIO_KEY);
+  return raw ? JSON.parse(raw) : null;
+}
+
+export function haySesion() {
+  return !!localStorage.getItem(ACCESS_KEY);
+}
+
+export function cerrarSesion() {
+  localStorage.removeItem(ACCESS_KEY);
+  localStorage.removeItem(REFRESH_KEY);
+  localStorage.removeItem(USUARIO_KEY);
+}
+
+// ==========================================
+// 2. PETICIONES HTTP / API FETCH
+// ==========================================
+
+async function refrescarToken() {
+  const refresh = localStorage.getItem(REFRESH_KEY);
+  if (!refresh) return null;
+
+  const res = await fetch('/api/v1/auth/refresh/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refresh }),
+  });
+  if (!res.ok) return null;
+
+  const data = await res.json();
+  localStorage.setItem(ACCESS_KEY, data.access);
+  return data.access;
+}
+
+export async function apiFetch(path, options = {}) {
+  const access = localStorage.getItem(ACCESS_KEY);
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(options.headers || {}),
+    ...(access ? { Authorization: `Bearer ${access}` } : {}),
+  };
+
+  let res = await fetch(path, { ...options, headers });
+
+  if (res.status === 401 && access) {
+    const nuevoAccess = await refrescarToken();
+    if (nuevoAccess) {
+      res = await fetch(path, {
+        ...options,
+        headers: { ...headers, Authorization: `Bearer ${nuevoAccess}` },
+      });
+    } else {
+      cerrarSesion();
+      window.location.href = '/login';
+      return res;
+    }
+  }
+
+  return res;
+}
+
+// ==========================================
+// 3. CONEXIÓN WEBSOCKET
+// ==========================================
+
 let socket = null;
 let pingInterval = null;
 
 export function conectarWebSocket() {
-    // 1. Obtener el token con la clave real definida en api.js
     const token = localStorage.getItem(ACCESS_KEY);
 
     if (!token || token.trim() === "") {
@@ -21,10 +97,9 @@ export function conectarWebSocket() {
     socket.onopen = () => {
         console.log("✅ WebSocket conectado exitosamente");
 
-        // Detener heartbeat previo si existía
         if (pingInterval) clearInterval(pingInterval);
 
-        // 2. Mantener la conexión activa (evita desconexiones 1006 en Render)
+        // Mantener la conexión activa (evita desconexiones 1006 en Render)
         pingInterval = setInterval(() => {
             if (socket && socket.readyState === WebSocket.OPEN) {
                 socket.send(JSON.stringify({ action: "ping" }));
@@ -36,21 +111,16 @@ export function conectarWebSocket() {
         try {
             const data = JSON.parse(event.data);
             
-            // Responder/ignorar el evento pong del servidor
             if (data.event === "pong") return;
 
             console.log("📩 Mensaje recibido:", data);
 
-            // Manejo de eventos del backend
             switch (data.event) {
                 case "ubicacion_actualizada":
-                    // Lógica para actualizar en el mapa
                     break;
                 case "nuevo_cliente_colectivo":
-                    // Notificación cliente
                     break;
                 case "nueva_solicitud_especial":
-                    // Notificación especial
                     break;
                 default:
                     break;
@@ -67,13 +137,11 @@ export function conectarWebSocket() {
     socket.onclose = (event) => {
         console.warn(`⚠️ WebSocket Cerrado (Código: ${event.code})`);
         
-        // Limpiar el heartbeat
         if (pingInterval) {
             clearInterval(pingInterval);
             pingInterval = null;
         }
 
-        // Si el servidor rechazó por token inválido (4001), se redirige al login
         if (event.code === 4001) {
             console.error("Token rechazado por el servidor WebSocket. Inicie sesión nuevamente.");
             cerrarSesion();
@@ -81,7 +149,6 @@ export function conectarWebSocket() {
             return;
         }
 
-        // Reconexión automática sólo para desconexiones temporales (código 1006, etc.)
         if (event.code !== 1000) {
             console.log("🔄 Intentando reconectar en 5 segundos...");
             setTimeout(() => {
