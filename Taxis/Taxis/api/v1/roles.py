@@ -1,4 +1,4 @@
-from rest_framework import serializers, status
+from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -7,11 +7,10 @@ from django.utils import timezone
 from ...models import Chofer, RolDia, PagoRol
 from ...permissions import EsAdmin
 from ...utils import enviar_notificacion
-from ...utils_roles import rebalancear_todos_los_choferes, obtener_dias_semana_grupo, DIAS_OPCIONES
-
+from ...utils_roles import obtener_dias_semana_grupo
 
 class RolesConfigView(APIView):
-    """GET: Retorna el estado de los grupos, los choferes asignados automáticamente y cobros pendientes."""
+    """GET: Devuelve el estado actual de los grupos, los choferes y los pagos pendientes."""
     permission_classes = [IsAuthenticated, EsAdmin]
 
     def get(self, request):
@@ -28,28 +27,25 @@ class RolesConfigView(APIView):
                 "total_choferes": total_choferes,
             })
 
-        # Choferes y su asignación automática
+        # Lista de choferes asignados automáticamente
         choferes = Chofer.objects.select_related("perfil").exclude(estado="pendiente").order_by('perfil__fecha_registro')
-        choferes_data = []
-        for c in choferes:
-            al_dia = PagoRol.objects.filter(chofer=c, fecha_pago__date=hoy, estado='pagado').exists()
-            
-            choferes_data.append({
+        choferes_data = [
+            {
                 "id": c.id,
                 "nombre": f"{c.perfil.nombre or ''} {c.perfil.apellido or ''}".strip() or c.perfil.username,
                 "telefono": getattr(c.perfil, "telefono", ""),
-                "estado": c.estado,
-                "estado_display": c.get_estado_display(),
-                "grupo_rol": c.grupo_rol or "Asignando...",
-                "al_dia": al_dia,
-            })
+                "estado": c.get_estado_display(),
+                "grupo_rol": c.grupo_rol or "Auto-asignando...",
+                "al_dia": PagoRol.objects.filter(chofer=c, fecha_pago__date=hoy, estado='pagado').exists(),
+            }
+            for c in choferes
+        ]
 
-        # Cobros en efectivo reportados o pendientes de liberar
+        # COBROS EN EFECTIVO PENDIENTES DE REVISAR POR EL ADMIN
         pagos_pendientes = PagoRol.objects.filter(estado='pendiente').select_related('chofer__perfil')
         pagos_pendientes_data = [
             {
                 "id": p.id,
-                "chofer_id": p.chofer.id,
                 "chofer_nombre": f"{p.chofer.perfil.nombre or ''} {p.chofer.perfil.apellido or ''}".strip(),
                 "monto": p.monto,
                 "fecha": p.fecha_pago.strftime("%Y-%m-%d %H:%M"),
@@ -57,67 +53,15 @@ class RolesConfigView(APIView):
             for p in pagos_pendientes
         ]
 
-        return Response(
-            {
-                "grupos_configurados": grupos_configurados,
-                "choferes": choferes_data,
-                "pagos_pendientes": pagos_pendientes_data,
-                "dias_opciones": DIAS_OPCIONES,
-            },
-            status=status.HTTP_200_OK,
-        )
-
-
-class GuardarReglaSerializer(serializers.Serializer):
-    grupo = serializers.CharField()
-    dias = serializers.ListField(child=serializers.CharField(), allow_empty=False)
-
-
-class GuardarReglaRolView(APIView):
-    """POST: Crea un grupo y automáticamente distribuye de manera equitativa a los choferes."""
-    permission_classes = [IsAuthenticated, EsAdmin]
-
-    def post(self, request):
-        serializer = GuardarReglaSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        datos = serializer.validated_data
-
-        RolDia.objects.filter(grupo=datos["grupo"]).delete()
-        for dia in datos["dias"]:
-            RolDia.objects.create(grupo=datos["grupo"], dia_semana=dia)
-
-        # AL CREAR/MODIFICAR UN GRUPO SE REBALANCEAN AUTOMÁTICAMENTE
-        rebalancear_todos_los_choferes()
-
-        return Response(
-            {"status": "ok", "message": f"Grupo '{datos['grupo']}' guardado. Choferes reasignados automáticamente."},
-            status=status.HTTP_200_OK,
-        )
-
-
-class EliminarGrupoRolView(APIView):
-    """POST: Elimina un grupo y rebalancea los choferes entre los grupos restantes."""
-    permission_classes = [IsAuthenticated, EsAdmin]
-
-    def post(self, request):
-        grupo = request.data.get("grupo")
-        if not grupo:
-            return Response({"status": "error", "message": "Grupo no especificado."}, status=400)
-
-        RolDia.objects.filter(grupo=grupo).delete()
-        Chofer.objects.filter(grupo_rol=grupo).update(grupo_rol=None)
-
-        # REBALANCEO AUTOMÁTICO EN GRUPOS RESTANTES
-        rebalancear_todos_los_choferes()
-
-        return Response(
-            {"status": "ok", "message": f"Se eliminó el grupo '{grupo}' y se reasignaron los choferes."},
-            status=status.HTTP_200_OK,
-        )
+        return Response({
+            "grupos_configurados": grupos_configurados,
+            "choferes": choferes_data,
+            "pagos_pendientes": pagos_pendientes_data,
+        }, status=status.HTTP_200_OK)
 
 
 class ConfirmarPagoEfectivoView(APIView):
-    """POST: El admin presiona 'Confirmar Cobro' cuando recibe el dinero en efectivo."""
+    """POST: ÚNICA ACCIÓN MANUAL DEL ADMIN - Confirmar que recibió el dinero en efectivo."""
     permission_classes = [IsAuthenticated, EsAdmin]
 
     def post(self, request):
@@ -142,10 +86,10 @@ class ConfirmarPagoEfectivoView(APIView):
             enviar_notificacion(
                 usuario=chofer.perfil,
                 tipo='pago_rol',
-                mensaje=f"Tu pago de rol por ${pago.monto} ha sido recibido en efectivo y confirmado."
+                mensaje=f"Tu pago de rol por ${pago.monto} en efectivo fue confirmado por administración."
             )
-            return Response({"status": "ok", "message": "Pago en efectivo confirmado. Chofer liberado."})
+            return Response({"status": "ok", "message": "Pago en efectivo confirmado correctamente."})
         else:
             pago.estado = 'rechazado'
             pago.save()
-            return Response({"status": "ok", "message": "Cobro/Pago marcado como rechazado."})
+            return Response({"status": "ok", "message": "Pago marcado como rechazado."})

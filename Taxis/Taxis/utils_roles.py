@@ -1,56 +1,39 @@
 import datetime
 from django.db import transaction
 
-DIAS_OPCIONES = ["Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado", "Domingo"]
+DIAS_SEMANA = ["Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado", "Domingo"]
 
-def rebalancear_todos_los_choferes():
+def garantizar_grupos_y_asignar_chofer(chofer):
     """
-    Toma a TODOS los choferes aprobados y los reparte de manera 
-    completamente equitativa entre los grupos creados, 
-    ordenados estrictamente por fecha de registro.
+    1. Asegura que existan 3 grupos base (Grupo A, Grupo B, Grupo C).
+    2. Asegura que los 7 días de la semana estén repartidos entre los grupos para cobertura total.
+    3. Asigna al chofer al grupo que tenga MENOS integrantes en ese momento.
     """
     from .models import Chofer, RolDia
 
-    grupos_existentes = list(RolDia.objects.values_list('grupo', flat=True).distinct().order_by('grupo'))
-    if not grupos_existentes:
-        return
-
-    choferes = Chofer.objects.exclude(estado='pendiente').order_by('perfil__fecha_registro')
-    num_grupos = len(grupos_existentes)
+    grupos_base = ["Grupo A", "Grupo B", "Grupo C"]
 
     with transaction.atomic():
-        for i, chofer in enumerate(choferes):
-            grupo_destino = grupos_existentes[i % num_grupos]
-            if chofer.grupo_rol != grupo_destino:
-                Chofer.objects.filter(pk=chofer.pk).update(grupo_rol=grupo_destino)
+        # Crear reglas de días si no existen aún en la base de datos
+        if not RolDia.objects.exists():
+            for i, dia in enumerate(DIAS_SEMANA):
+                grupo_destino = grupos_base[i % len(grupos_base)]
+                RolDia.objects.create(grupo=grupo_destino, dia_semana=dia)
 
+        # Si el chofer ya tiene grupo y no es necesario moverlo, terminamos
+        if chofer.grupo_rol:
+            return
 
-def asignar_grupo_automatico_a_chofer(chofer):
-    """
-    Asigna un grupo individual al chofer entrante buscando 
-    cuál grupo tiene MENOS integrantes actualmente.
-    """
-    from .models import Chofer, RolDia
+        # Contar cuántos choferes hay en cada grupo
+        conteo = {g: Chofer.objects.filter(grupo_rol=g).count() for g in grupos_base}
+        grupo_menos_poblado = min(conteo, key=conteo.get)
 
-    grupos_existentes = list(RolDia.objects.values_list('grupo', flat=True).distinct().order_by('grupo'))
-    if not grupos_existentes:
-        return
-
-    # Contar cuántos choferes tiene cada grupo actualmente
-    conteo_grupos = {}
-    for g in grupos_existentes:
-        conteo_grupos[g] = Chofer.objects.filter(grupo_rol=g).count()
-
-    # Seleccionar el grupo con menor cantidad de choferes
-    grupo_menos_poblado = min(conteo_grupos, key=conteo_grupos.get)
-    
-    Chofer.objects.filter(pk=chofer.pk).update(grupo_rol=grupo_menos_poblado)
+        # Asignar automáticamente
+        Chofer.objects.filter(pk=chofer.pk).update(grupo_rol=grupo_menos_poblado)
 
 
 def obtener_dias_semana_grupo(grupo_nombre, fecha_ref=None):
-    """
-    Calcula qué días le corresponden al grupo en la semana actual mediante rotación.
-    """
+    """Calcula la rotación semanal inteligente según el número de semana del año."""
     from .models import RolDia
 
     if not fecha_ref:
@@ -64,7 +47,6 @@ def obtener_dias_semana_grupo(grupo_nombre, fecha_ref=None):
     num_grupos = len(grupos)
     idx_grupo = grupos.index(grupo_nombre)
 
-    # Rotación por número de semana
     posicion_rotada = (idx_grupo + num_semana) % num_grupos
     grupo_rotado = grupos[posicion_rotada]
 

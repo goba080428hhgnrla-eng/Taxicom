@@ -101,21 +101,12 @@ class Chofer(models.Model):
     ultima_actualizacion = models.DateTimeField(auto_now=True)
 
     def save(self, *args, **kwargs):
-        # ASIGNACIÓN AUTOMÁTICA DE GRUPO AL APROBAR O ACTIVAR UN CHOFER
-        es_nuevo_o_cambio_estado = False
-        if self.pk:
-            anterior = Chofer.objects.filter(pk=self.pk).first()
-            if anterior and anterior.estado == 'pendiente' and self.estado == 'activo':
-                es_nuevo_o_cambio_estado = True
-        elif self.estado == 'activo':
-            es_nuevo_o_cambio_estado = True
-
         super().save(*args, **kwargs)
 
-        # Si se acaba de activar y no tiene grupo, se ejecuta la asignación automática
-        if (es_nuevo_o_cambio_estado or not self.grupo_rol) and self.estado != 'pendiente':
-            from .utils_roles import asignar_grupo_automatico_a_chofer
-            asignar_grupo_automatico_a_chofer(self)
+        # Si el chofer está activo y aún no tiene grupo, se auto-asigna
+        if self.estado == 'activo' and not self.grupo_rol:
+            from .utils_roles import garantizar_grupos_y_asignar_chofer
+            garantizar_grupos_y_asignar_chofer(self)
 
     def pagar_rol(self, monto):
         from django.utils import timezone
