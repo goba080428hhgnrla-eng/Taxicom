@@ -39,8 +39,6 @@ from Taxis.api.v1.roles import (
 from Taxis.api.v1.rutas import (
     RutasListCreateView,
     RutaDetailView,
-    AgregarChoferRutaView,
-    QuitarChoferRutaView,
     SolicitarColectivoView,
     RutasClienteView,
 )
