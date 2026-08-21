@@ -131,7 +131,7 @@ class TaxiColectivoConsumer(AsyncWebsocketConsumer):
     # UBICACIÓN
     # =========================================================
     async def broadcast_ubicacion(self, event):
-        await self.send(
+        await self.send(        
             text_data=json.dumps({
                 "event": "ubicacion_actualizada",
                 "chofer_id": event["chofer_id"],

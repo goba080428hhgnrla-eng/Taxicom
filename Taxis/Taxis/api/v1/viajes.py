@@ -15,13 +15,65 @@ Cambios de seguridad respecto al original:
   cliente que calificaba, ni que el viaje estuviera terminado -- cualquiera
   podia calificar cualquier viaje adivinando el id. Aqui si se valida.
 """
+import math
+from channels.layers import get_channel_layer
+from asgiref.sync import async_to_sync
 from rest_framework import serializers, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from ...models import Viaje, Calificacion
+from ...models import Viaje, Calificacion, Chofer
 from ...permissions import EsCliente
+
+
+def calcular_distancia(lat1, lon1, lat2, lon2):
+    """Calcula la distancia aproximada en kilómetros entre dos puntos (Haversine)."""
+    R = 6371.0
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = (math.sin(dlat / 2) ** 2 +
+         math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) *
+         math.sin(dlon / 2) ** 2)
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return R * c
+
+
+def asignar_colectivo_automatico(viaje: Viaje):
+    # Buscamos choferes que estén en ruta o activos
+    choferes_candidatos = Chofer.objects.filter(
+        estado__in=['activo', 'en_ruta']
+    ).select_related('vehiculo', 'perfil')
+
+    candidatos_validos = []
+
+    for chofer in choferes_candidatos:
+        # 1. Validar asientos disponibles
+        if chofer.asientos_disponibles < viaje.asientos_solicitados:
+            continue
+        
+        # 2. Validar cajuela si el pasajero la requiere
+        if viaje.requiere_cajuela:
+            if not chofer.vehiculo or not chofer.vehiculo.tiene_cajuela:
+                continue
+        
+        # 3. Calcular la distancia hacia el cliente
+        distancia = calcular_distancia(
+            chofer.latitud, chofer.longitud,
+            viaje.origen_lat, viaje.origen_lng
+        )
+        
+        candidatos_validos.append({
+            'chofer': chofer,
+            'distancia': distancia
+        })
+
+    if not candidatos_validos:
+        return None
+
+    # Ordenar por el chofer más cercano
+    candidatos_validos.sort(key=lambda x: x['distancia'])
+    return candidatos_validos[0]['chofer']
 
 
 class SolicitarViajeSerializer(serializers.Serializer):
@@ -62,6 +114,77 @@ class SolicitarViajeView(APIView):
                 "status": "ok",
                 "viaje_id": viaje.id,
                 "message": "Solicitud creada. Buscando chofer disponible.",
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class SolicitarColectivoView(APIView):
+    """Asignación automática obligatoria de colectivos (sin aprobación manual)."""
+    permission_classes = [IsAuthenticated, EsCliente]
+
+    def post(self, request):
+        serializer = SolicitarViajeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        datos = serializer.validated_data
+
+        # En colectivos se asigna de inmediato por obligación de ruta
+        viaje = Viaje.objects.create(
+            cliente=request.user,
+            origen_lat=datos["origen_lat"],
+            origen_lng=datos["origen_lng"],
+            origen_direccion=datos["origen_direccion"],
+            destino_lat=datos["destino_lat"],
+            destino_lng=datos["destino_lng"],
+            destino_direccion=datos["destino_direccion"],
+            asientos_solicitados=datos["asientos"],
+            requiere_cajuela=datos["requiere_cajuela"],
+            estado="aceptado",
+        )
+
+        # Asignar automáticamente evaluando asientos, cajuela y proximidad
+        chofer_asignado = asignar_colectivo_automatico(viaje)
+
+        if not chofer_asignado:
+            viaje.estado = "solicitado"
+            viaje.save()
+            return Response(
+                {"status": "error", "message": "No hay colectivos disponibles con los requisitos solicitados en este momento."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Vincular chofer al viaje y descontar asientos temporalmente
+        viaje.chofer = chofer_asignado
+        viaje.save()
+
+        chofer_asignado.asientos_disponibles -= datos["asientos"]
+        chofer_asignado.save(update_fields=["asientos_disponibles"])
+
+        # Notificar en tiempo real al grupo personal del chofer mediante WebSockets
+        channel_layer = get_channel_layer()
+        async_to_sync(channel_layer.group_send)(
+            f"chofer_{chofer_asignado.id}",
+            {
+                "type": "notificar_cliente_colectivo",
+                "viaje_id": viaje.id,
+                "cliente_nombre": f"{request.user.nombre or ''} {request.user.apellido or ''}".strip(),
+                "lat": datos["origen_lat"],
+                "lng": datos["origen_lng"],
+                "asientos": datos["asientos"],
+                "requiere_cajuela": datos["requiere_cajuela"],
+            }
+        )
+
+        return Response(
+            {
+                "status": "ok",
+                "viaje_id": viaje.id,
+                "message": "Colectivo asignado correctamente.",
+                "chofer": {
+                    "id": chofer_asignado.id,
+                    "nombre": f"{chofer_asignado.perfil.nombre} {chofer_asignado.perfil.apellido}",
+                    "vehiculo": f"{chofer_asignado.vehiculo.marca} {chofer_asignado.vehiculo.modelo} ({chofer_asignado.vehiculo.placas})" if chofer_asignado.vehiculo else "Unidad activa"
+                }
             },
             status=status.HTTP_201_CREATED,
         )
