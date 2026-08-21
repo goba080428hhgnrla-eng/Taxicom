@@ -96,7 +96,6 @@ export default function Dashboard() {
   // =========================================================
 
   const conectarWebSocket = () => {
-    // CORRECCIÓN 1: Usar la clave exacta guardada por api.js ('taxicom_access')
     const accessToken = localStorage.getItem('taxicom_access');
 
     if (!accessToken) {
@@ -105,7 +104,6 @@ export default function Dashboard() {
       return;
     }
 
-    // CORRECCIÓN 2: Conectar directamente al host de Render mediante wss://
     const wsUrl = `wss://taxicom.onrender.com/ws/colectivos/?token=${encodeURIComponent(accessToken)}`;
     const socket = new WebSocket(wsUrl);
     socketRef.current = socket;
@@ -113,7 +111,6 @@ export default function Dashboard() {
     socket.onopen = () => {
       setWsStatus('WebSocket Conectado');
 
-      // Mantener viva la conexión con Ping cada 25 segundos
       if (pingInterval.current) clearInterval(pingInterval.current);
       pingInterval.current = setInterval(() => {
         if (socket.readyState === WebSocket.OPEN) {
@@ -127,17 +124,16 @@ export default function Dashboard() {
 
       if (data.event === 'pong') return;
 
-      // CASO 1: CHOFER FINALIZÓ TURNO O SE DESCONECTÓ
       if (data.event === 'chofer_desconectado') {
         removerMarcador(data.chofer_id);
         setChoferes((prev) => prev.filter((c) => c.chofer_id !== data.chofer_id));
         return;
       }
 
-      // CASO 2: ACTUALIZACIÓN DE UBICACIÓN
       if (data.event === 'ubicacion_actualizada' || data.lat) {
+        const choferId = data.chofer_id || data.id;
         crearOActualizarMarcador(
-          data.chofer_id,
+          choferId,
           data.lat,
           data.lng,
           data.nombre || 'Chofer en Ruta',
@@ -147,21 +143,23 @@ export default function Dashboard() {
         );
 
         setChoferes((prev) => {
-          const existe = prev.some((c) => c.chofer_id === data.chofer_id);
+          const existe = prev.some((c) => c.chofer_id === choferId);
           if (!existe) {
             return [
               ...prev,
               {
-                chofer_id: data.chofer_id,
+                chofer_id: choferId,
                 nombre: data.nombre || 'Chofer en Ruta',
                 vehiculo: data.vehiculo || 'Vehículo Activo',
                 asientos_disponibles: data.asientos_disponibles ?? 0,
                 estado: 'En Ruta',
+                lat: data.lat,
+                lng: data.lng,
               },
             ];
           }
           return prev.map((c) =>
-            c.chofer_id === data.chofer_id
+            c.chofer_id === choferId
               ? {
                   ...c,
                   lat: data.lat,
@@ -179,7 +177,6 @@ export default function Dashboard() {
       setWsStatus(`Desconectado (code ${e.code})`);
       if (pingInterval.current) clearInterval(pingInterval.current);
 
-      // 4001: Token inválido/expirado -> No reintentar en bucle
       if (e.code !== 4001 && e.code !== 1000) {
         reconnectTimeout.current = setTimeout(conectarWebSocket, 3000);
       } else if (e.code === 4001) {
@@ -193,7 +190,6 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
-    // Inicialización del Mapa
     if (!mapInstance.current) {
       mapInstance.current = L.map(mapRef.current, { zoomControl: false }).setView([19.727, -99.508], 13);
       L.control.zoom({ position: 'bottomright' }).addTo(mapInstance.current);
@@ -202,15 +198,16 @@ export default function Dashboard() {
       }).addTo(mapInstance.current);
     }
 
-    // Carga inicial por API
-    apiFetch('/api/v1/choferes/activos/')
+    // Usar la ruta correcta del backend adaptada a MapaChoferesActivosView
+    apiFetch('/api/v1/admin/mapa-activos/')
       .then((res) => (res.ok ? res.json() : []))
       .then((data) => {
         const lista = Array.isArray(data) ? data : data.choferes || [];
         setChoferes(lista);
         lista.forEach((c) => {
+          const choferId = c.chofer_id || c.id;
           crearOActualizarMarcador(
-            c.chofer_id || c.id,
+            choferId,
             c.lat,
             c.lng,
             c.nombre,
@@ -222,7 +219,6 @@ export default function Dashboard() {
       })
       .catch((err) => console.error('Error cargando flota:', err));
 
-    // Iniciar WebSocket
     conectarWebSocket();
 
     return () => {
@@ -237,8 +233,9 @@ export default function Dashboard() {
   }, []);
 
   const seleccionarConductor = (chofer) => {
-    setSelectedDriver(chofer.chofer_id);
-    const marker = markers.current[chofer.chofer_id];
+    const id = chofer.chofer_id || chofer.id;
+    setSelectedDriver(id);
+    const marker = markers.current[id];
     if (marker && mapInstance.current) {
       mapInstance.current.flyTo(marker.getLatLng(), 16, { duration: 0.8 });
       marker.openPopup();
@@ -260,19 +257,22 @@ export default function Dashboard() {
         <div className="w-full h-full grid grid-cols-12 gap-4">
           <aside className="col-span-3 bg-white rounded-2xl border border-slate-200 p-4 overflow-y-auto">
             <h2 className="font-bold text-lg mb-4">Vehículos Activos ({choferes.length})</h2>
-            {choferes.map((c) => (
-              <button
-                key={c.chofer_id}
-                onClick={() => seleccionarConductor(c)}
-                className={`w-full text-left p-3 mb-2 rounded-xl border transition-all ${
-                  selectedDriver === c.chofer_id ? 'bg-slate-900 text-white' : 'bg-white hover:bg-slate-50'
-                }`}
-              >
-                <div className="font-semibold text-sm">{c.nombre}</div>
-                <div className="text-xs opacity-70">{c.vehiculo}</div>
-                <div className="text-xs mt-2">Free seats: {c.asientos_disponibles ?? 0}</div>
-              </button>
-            ))}
+            {choferes.map((c) => {
+              const id = c.chofer_id || c.id;
+              return (
+                <button
+                  key={id}
+                  onClick={() => seleccionarConductor(c)}
+                  className={`w-full text-left p-3 mb-2 rounded-xl border transition-all ${
+                    selectedDriver === id ? 'bg-slate-900 text-white' : 'bg-white hover:bg-slate-50'
+                  }`}
+                >
+                  <div className="font-semibold text-sm">{c.nombre}</div>
+                  <div className="text-xs opacity-70">{c.vehiculo}</div>
+                  <div className="text-xs mt-2 font-medium">Asientos libres: {c.asientos_disponibles ?? 0}</div>
+                </button>
+              );
+            })}
           </aside>
 
           <section className="col-span-9 relative bg-white rounded-2xl border border-slate-200 overflow-hidden min-h-[500px]">

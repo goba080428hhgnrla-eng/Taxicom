@@ -240,3 +240,7 @@ class DetalleChoferView(APIView):
             {"status": "ok", "message": f"El chofer {nombre} fue dado de baja."},
             status=status.HTTP_200_OK,
         )
+        
+        
+        
+#comentario de prueba
