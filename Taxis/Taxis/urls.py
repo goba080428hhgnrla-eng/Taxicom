@@ -215,6 +215,9 @@ urlpatterns = [
     ),
 
     path(
+        "api/v1/rutas",RutasClienteView.as_view(), name="api_rutas_si"),
+    
+    path(
         "api/v1/admin/rutas/<int:ruta_id>/",
         RutaDetailView.as_view(),
         name="api_ruta_detalle_v1"
