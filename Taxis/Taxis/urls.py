@@ -208,32 +208,11 @@ urlpatterns = [
     # RUTAS
     # =====================================================
 
-    path(
-        "api/v1/admin/rutas/",
-        RutasListCreateView.as_view(),
-        name="api_rutas_v1"
-    ),
-
-    path(
-        "api/v1/rutas",RutasClienteView.as_view(), name="api_rutas_si"),
-    
-    path(
-        "api/v1/admin/rutas/<int:ruta_id>/",
-        RutaDetailView.as_view(),
-        name="api_ruta_detalle_v1"
-    ),
-
-    path(
-        "api/v1/admin/rutas/<int:ruta_id>/agregar-chofer/",
-        AgregarChoferRutaView.as_view(),
-        name="api_agregar_chofer_ruta_v1"
-    ),
-
-    path(
-        "api/v1/admin/rutas/<int:ruta_id>/quitar-chofer/",
-        QuitarChoferRutaView.as_view(),
-        name="api_quitar_chofer_ruta_v1"
-    ),
+    path("api/v1/admin/rutas/", RutasListCreateView.as_view(), name="api_rutas_v1"),
+    path("api/v1/rutas", RutasClienteView.as_view(), name="api_rutas_si"),
+    path("api/v1/admin/rutas/<int:ruta_id>/", RutaDetailView.as_view(), name="api_ruta_detalle_v1"),
+    path("api/v1/admin/rutas/<int:ruta_id>/agregar-chofer/", AgregarChoferRutaView.as_view(), name="api_agregar_chofer_ruta_v1"),
+    path("api/v1/admin/rutas/<int:ruta_id>/quitar-chofer/", QuitarChoferRutaView.as_view(), name="api_quitar_chofer_ruta_v1"),
     path('api/v1/admin/roles/config/', RolesConfigView.as_view(), name='roles_config'),
     
     # Único botón manual que usará el admin

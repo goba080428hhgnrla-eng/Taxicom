@@ -31,18 +31,9 @@ def _distancia_km(lat1, lng1, lat2, lng2):
     return 2 * R * math.asin(math.sqrt(a))
 
 
-# Taxis/Taxis/api/v1/rutas.py
-
 def _ruta_a_dict(ruta):
-    # Intentar obtener los choferes de la relación inversa o ManyToMany
-    if hasattr(ruta, 'choferes_asignados'):
-        choferes_qs = ruta.choferes_asignados.all()
-    elif hasattr(ruta, 'choferes'):
-        choferes_qs = ruta.choferes.all()
-    elif hasattr(ruta, 'chofer_set'):
-        choferes_qs = ruta.chofer_set.all()
-    else:
-        choferes_qs = []
+    # Consulta optimizada usando el campo real 'ruta_asignada' del modelo Chofer
+    choferes_qs = Chofer.objects.filter(ruta_asignada=ruta)
 
     choferes_data = []
     for chofer in choferes_qs:
@@ -113,7 +104,7 @@ class ChoferIdSerializer(serializers.Serializer):
 
 
 class AgregarChoferRutaView(APIView):
-    """POST {"chofer_id": N} -- suma este chofer a la ruta (no quita a nadie mas)."""
+    """POST {"chofer_id": N} -- suma este chofer a la ruta."""
     authentication_classes = [PerfilUsuarioJWTAuthentication]
     permission_classes = [IsAuthenticated, EsAdmin]
 
@@ -137,7 +128,7 @@ class AgregarChoferRutaView(APIView):
 
 
 class QuitarChoferRutaView(APIView):
-    """POST {"chofer_id": N} -- saca a este chofer de la ruta, sin tocar a los demas."""
+    """POST {"chofer_id": N} -- saca a este chofer de la ruta."""
     authentication_classes = [PerfilUsuarioJWTAuthentication]
     permission_classes = [IsAuthenticated, EsAdmin]
 
@@ -163,13 +154,6 @@ class SolicitarColectivoSerializer(serializers.Serializer):
 
 
 class SolicitarColectivoView(APIView):
-    """
-    Elige, entre TODOS los choferes activos en la ruta con asientos y
-    cajuela suficientes, al mas cercano al cliente. Le reserva los
-    asientos de forma atomica (evita que dos solicitudes casi simultaneas
-    le ganen el mismo asiento al mismo chofer) y le manda la alerta SOLO
-    a el.
-    """
     authentication_classes = [PerfilUsuarioJWTAuthentication]
     permission_classes = [IsAuthenticated, EsCliente]
 
@@ -199,17 +183,12 @@ class SolicitarColectivoView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        # Ordena por cercania real al cliente -- el mas cercano va primero.
         candidatos.sort(
             key=lambda c: _distancia_km(datos["lat"], datos["lng"], c.latitud or 0.0, c.longitud or 0.0)
         )
 
         chofer_elegido = None
         for candidato in candidatos:
-            # UPDATE atomico: solo resta los asientos si TODAVIA hay
-            # suficientes en este instante -- si otra solicitud se los
-            # gano justo antes, esto no actualiza nada (0 filas) y pasamos
-            # al siguiente candidato mas cercano.
             filas_actualizadas = Chofer.objects.filter(
                 id=candidato.id, asientos_disponibles__gte=datos["asientos"]
             ).update(asientos_disponibles=F("asientos_disponibles") - datos["asientos"])
@@ -230,7 +209,7 @@ class SolicitarColectivoView(APIView):
                 chofer=chofer_elegido,
                 origen_lat=datos["lat"],
                 origen_lng=datos["lng"],
-                origen_direccion="Parada de colectivo (ubicación exacta del cliente)",
+                origen_direccion="Parada de colectivo",
                 destino_lat=datos["lat"],
                 destino_lng=datos["lng"],
                 destino_direccion="",
@@ -264,11 +243,6 @@ class SolicitarColectivoView(APIView):
 
 
 class RutasClienteView(APIView):
-    """
-    GET: lista de rutas colectivas para que el cliente elija -- sin datos
-    de administracion, solo lo necesario para dibujar el mapa y saber si
-    hay cupo.
-    """
     authentication_classes = [PerfilUsuarioJWTAuthentication]
     permission_classes = [IsAuthenticated]
 
@@ -276,8 +250,11 @@ class RutasClienteView(APIView):
         rutas = Ruta.objects.all().order_by("nombre")
         data = []
         for ruta in rutas:
-            disponibles = ruta.choferes.filter(
-                estado__in=["activo", "en_ruta"], asientos_disponibles__gt=0
+            # Corrección aplicada: se usa Chofer.objects.filter con ruta_asignada
+            disponibles = Chofer.objects.filter(
+                ruta_asignada=ruta,
+                estado__in=["activo", "en_ruta"],
+                asientos_disponibles__gt=0
             ).count()
             data.append({
                 "id": ruta.id,
