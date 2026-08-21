@@ -1,9 +1,7 @@
 """
 Ubicacion: Taxis/Taxis/api/v1/rutas.py
 
-Varios choferes pueden trabajar la misma ruta al mismo tiempo. Cuando un
-cliente pide el colectivo, se elige UN chofer (el mas cercano, con
-asientos y cajuela disponibles) y SOLO a el le llega la alerta.
+Los choferes circulan libremente y atienden cualquier ruta.
 """
 import math
 
@@ -22,7 +20,7 @@ from Taxis.authentication import PerfilUsuarioJWTAuthentication
 
 
 def _distancia_km(lat1, lng1, lat2, lng2):
-    """Formula de Haversine -- suficiente precision para elegir 'el mas cercano'."""
+    """Formula de Haversine."""
     R = 6371
     p1, p2 = math.radians(lat1), math.radians(lat2)
     dp = math.radians(lat2 - lat1)
@@ -32,8 +30,9 @@ def _distancia_km(lat1, lng1, lat2, lng2):
 
 
 def _ruta_a_dict(ruta):
-    # Consulta optimizada usando el campo real 'ruta_asignada' del modelo Chofer
-    choferes_qs = Chofer.objects.filter(ruta_asignada=ruta)
+    # Como los choferes andan libres, devolvemos una lista general de choferes activos 
+    # o dejamos la lista vacía/general para el panel si no hay asignación fija.
+    choferes_qs = Chofer.objects.filter(estado__in=["activo", "en_ruta"])
 
     choferes_data = []
     for chofer in choferes_qs:
@@ -99,52 +98,6 @@ class RutaDetailView(APIView):
         return Response({"status": "ok"}, status=status.HTTP_200_OK)
 
 
-class ChoferIdSerializer(serializers.Serializer):
-    chofer_id = serializers.IntegerField()
-
-
-class AgregarChoferRutaView(APIView):
-    """POST {"chofer_id": N} -- suma este chofer a la ruta."""
-    authentication_classes = [PerfilUsuarioJWTAuthentication]
-    permission_classes = [IsAuthenticated, EsAdmin]
-
-    def post(self, request, ruta_id):
-        try:
-            ruta = Ruta.objects.get(id=ruta_id)
-        except Ruta.DoesNotExist:
-            return Response({"status": "error", "message": "Ruta no encontrada."}, status=status.HTTP_404_NOT_FOUND)
-
-        serializer = ChoferIdSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        try:
-            chofer = Chofer.objects.get(id=serializer.validated_data["chofer_id"])
-        except Chofer.DoesNotExist:
-            return Response({"status": "error", "message": "Chofer no encontrado."}, status=status.HTTP_404_NOT_FOUND)
-
-        chofer.ruta_asignada = ruta
-        chofer.save()
-        return Response(_ruta_a_dict(ruta), status=status.HTTP_200_OK)
-
-
-class QuitarChoferRutaView(APIView):
-    """POST {"chofer_id": N} -- saca a este chofer de la ruta."""
-    authentication_classes = [PerfilUsuarioJWTAuthentication]
-    permission_classes = [IsAuthenticated, EsAdmin]
-
-    def post(self, request, ruta_id):
-        try:
-            ruta = Ruta.objects.get(id=ruta_id)
-        except Ruta.DoesNotExist:
-            return Response({"status": "error", "message": "Ruta no encontrada."}, status=status.HTTP_404_NOT_FOUND)
-
-        serializer = ChoferIdSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        Chofer.objects.filter(id=serializer.validated_data["chofer_id"], ruta_asignada=ruta).update(ruta_asignada=None)
-        return Response(_ruta_a_dict(ruta), status=status.HTTP_200_OK)
-
-
 class SolicitarColectivoSerializer(serializers.Serializer):
     ruta_id = serializers.IntegerField()
     lat = serializers.FloatField()
@@ -167,8 +120,8 @@ class SolicitarColectivoView(APIView):
         except Ruta.DoesNotExist:
             return Response({"status": "error", "message": "Ruta no encontrada."}, status=status.HTTP_404_NOT_FOUND)
 
+        # Buscamos entre todos los choferes activos y con cupo, sin importar una ruta fija
         candidatos = Chofer.objects.filter(
-            ruta_asignada=ruta,
             estado__in=["activo", "en_ruta"],
             asientos_disponibles__gte=datos["asientos"],
         ).select_related("perfil", "vehiculo")
@@ -179,7 +132,7 @@ class SolicitarColectivoView(APIView):
         candidatos = list(candidatos)
         if not candidatos:
             return Response(
-                {"status": "error", "message": "No hay colectivos con cupo disponible en esa ruta ahora mismo."},
+                {"status": "error", "message": "No hay colectivos con cupo disponible en el sistema ahora mismo."},
                 status=status.HTTP_404_NOT_FOUND,
             )
 
@@ -250,9 +203,8 @@ class RutasClienteView(APIView):
         rutas = Ruta.objects.all().order_by("nombre")
         data = []
         for ruta in rutas:
-            # Corrección aplicada: se usa Chofer.objects.filter con ruta_asignada
+            # Contamos todos los choferes activos generales disponibles en el sistema
             disponibles = Chofer.objects.filter(
-                ruta_asignada=ruta,
                 estado__in=["activo", "en_ruta"],
                 asientos_disponibles__gt=0
             ).count()
