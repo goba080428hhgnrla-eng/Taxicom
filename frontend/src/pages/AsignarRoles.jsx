@@ -28,6 +28,9 @@ export default function AsignarRoles() {
     try {
       const res = await apiFetch('/api/v1/admin/roles/confirmar-pago/', {
         method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({ pago_id: pagoId, aprobado }),
       });
       if (res.ok) {
@@ -38,6 +41,14 @@ export default function AsignarRoles() {
     }
   };
 
+  if (cargando) {
+    return (
+      <div className="max-w-6xl mx-auto p-12 text-center text-slate-500 font-sans">
+        Cargando configuración de roles y pagos...
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-8 font-sans">
       
@@ -45,14 +56,14 @@ export default function AsignarRoles() {
       <div className="flex justify-between items-center pb-6 border-b border-slate-200">
         <div>
           <h1 className="text-3xl font-bold text-slate-900">Control de Pagos en Efectivo y Roles</h1>
-          <p className="text-slate-500 text-sm mt-1">El sistema asigna los grupos de manera 100% automática.</p>
+          <p className="text-slate-500 text-sm mt-1">El sistema asigna los grupos de manera 100% automática y gestiona el arrastre de turnos.</p>
         </div>
         <Link to="/admin" className="px-4 py-2 bg-slate-100 hover:bg-slate-200 rounded-xl text-sm font-semibold text-slate-700">
           &larr; Volver al Admin
         </Link>
       </div>
 
-      {/* SECCIÓN 1: ÚNICA TAREA MANUAL DEL ADMIN (CONFIRMAR EFECTIVO) */}
+      {/* SECCIÓN 1: TAREA MANUAL DEL ADMIN (CONFIRMAR EFECTIVO) */}
       <div className="bg-white p-6 rounded-2xl border border-amber-200 bg-amber-50/20 shadow-sm space-y-4">
         <div className="flex items-center justify-between">
           <div>
@@ -113,20 +124,28 @@ export default function AsignarRoles() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {datos.grupos_configurados?.map((g) => (
-                <tr key={g.nombre}>
-                  <td className="p-3 font-bold text-amber-600">{g.nombre} ({g.total_choferes})</td>
-                  <td className="p-3">
-                    <div className="flex flex-wrap gap-1">
-                      {g.dias_semana_actual?.map((d) => (
-                        <span key={d} className="bg-amber-100 text-amber-900 text-[11px] px-2 py-0.5 rounded font-bold">
-                          {d}
-                        </span>
-                      ))}
-                    </div>
+              {datos.grupos_configurados?.length > 0 ? (
+                datos.grupos_configurados.map((g) => (
+                  <tr key={g.nombre}>
+                    <td className="p-3 font-bold text-amber-600">{g.nombre} ({g.total_choferes})</td>
+                    <td className="p-3">
+                      <div className="flex flex-wrap gap-1">
+                        {g.dias_semana_actual?.map((d) => (
+                          <span key={d} className="bg-amber-100 text-amber-900 text-[11px] px-2 py-0.5 rounded font-bold">
+                            {d}
+                          </span>
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan="2" className="p-4 text-center text-slate-400 text-xs">
+                    No hay grupos configurados aún. Ejecuta el comando de migración de roles.
                   </td>
                 </tr>
-              ))}
+              )}
             </tbody>
           </table>
         </div>
@@ -145,19 +164,27 @@ export default function AsignarRoles() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {datos.choferes?.map((c) => (
-                <tr key={c.id}>
-                  <td className="p-3 font-semibold text-slate-800">{c.nombre}</td>
-                  <td className="p-3 font-bold text-slate-600">⚡ {c.grupo_rol}</td>
-                  <td className="p-3">
-                    {c.al_dia ? (
-                      <span className="text-emerald-600 font-bold text-xs">✓ Al día</span>
-                    ) : (
-                      <span className="text-amber-600 font-bold text-xs">⚠️ Pendiente</span>
-                    )}
+              {datos.choferes?.length > 0 ? (
+                datos.choferes.map((c) => (
+                  <tr key={c.id}>
+                    <td className="p-3 font-semibold text-slate-800">{c.nombre}</td>
+                    <td className="p-3 font-bold text-slate-600">⚡ {c.grupo_rol}</td>
+                    <td className="p-3">
+                      {c.al_dia ? (
+                        <span className="text-emerald-600 font-bold text-xs">✓ Al día</span>
+                      ) : (
+                        <span className="text-amber-600 font-bold text-xs">⚠️ Pendiente</span>
+                      )}
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan="3" className="p-4 text-center text-slate-400 text-xs">
+                    No hay choferes registrados en el sistema.
                   </td>
                 </tr>
-              ))}
+              )}
             </tbody>
           </table>
         </div>

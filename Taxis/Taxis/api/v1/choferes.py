@@ -189,7 +189,6 @@ class PagarRolSerializer(serializers.Serializer):
 
 
 class PagarRolView(APIView):
-
     authentication_classes = [PerfilUsuarioJWTAuthentication]
     permission_classes = [IsAuthenticated, EsChofer]
 
@@ -205,20 +204,21 @@ class PagarRolView(APIView):
             )
 
         hoy = timezone.now().date()
-        if PagoRol.objects.filter(chofer=chofer, fecha_pago__date=hoy, estado="pagado").exists():
+        
+        if PagoRol.objects.filter(chofer=chofer, fecha_pago__date=hoy, estado__in=["pagado", "pendiente"]).exists():
             return Response(
-                {"status": "error", "message": "El chofer ya pago el rol hoy."},
+                {"status": "error", "message": "Ya tienes un pago registrado o pendiente para el día de hoy."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        resultado = chofer.pagar_rol(serializer.validated_data["monto"])
+        PagoRol.objects.create(
+            chofer=chofer,
+            monto=serializer.validated_data["monto"],
+            estado='pendiente',
+            fecha_pago=timezone.now()
+        )
 
-        if resultado:
-            return Response(
-                {"status": "ok", "message": "Pago de rol realizado y chofer activado."},
-                status=status.HTTP_200_OK,
-            )
         return Response(
-            {"status": "error", "message": "El chofer ya pago el rol hoy."},
-            status=status.HTTP_400_BAD_REQUEST,
+            {"status": "ok", "message": "Solicitud de pago enviada. Esperando confirmación del administrador."},
+            status=status.HTTP_200_OK,
         )

@@ -1,5 +1,7 @@
 import datetime
 from django.db import transaction
+from datetime import date, timedelta
+from Taxis.models import PagoRol, Chofer
 
 DIAS_SEMANA = ["Lunes", "Martes", "Miercoles", "Jueves", "Viernes", "Sabado", "Domingo"]
 
@@ -51,3 +53,27 @@ def obtener_dias_semana_grupo(grupo_nombre, fecha_ref=None):
     grupo_rotado = grupos[posicion_rotada]
 
     return list(RolDia.objects.filter(grupo=grupo_rotado).values_list('dia_semana', flat=True))
+
+
+def verificar_arrastre_turnos(chofer):
+    """
+    Verifica si el chofer tiene pagos o turnos pendientes de fechas pasadas 
+    que no se hayan cubierto, aplicando el arrastre.
+    """
+    hoy = date.today()
+    
+    # Buscar si existen pagos pendientes o rechazados de días anteriores
+    pagos_pendientes_atrasados = PagoRol.objects.filter(
+        chofer=chofer,
+        fecha_pago__date__lt=hoy,
+        estado__in=['pendiente', 'rechazado']
+    ).exists()
+
+    if pagos_pendientes_atrasados:
+        # El chofer mantiene el estatus de arrastre / adeudo
+        if chofer.estado != 'inactivo':
+            chofer.estado = 'inactivo'
+            chofer.save(update_fields=['estado'])
+        return False
+        
+    return True
